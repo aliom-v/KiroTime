@@ -1,13 +1,16 @@
 # Dart / Flutter
 .dart_tool/
 .packages
+.metadata
 .pub-cache/
 .pub/
 build/
+coverage/
 
 # Generated plugin registrants and local tool files
 .flutter-plugins
 .flutter-plugins-dependencies
+flutter_export_environment.sh
 
 # IDEs
 .idea/
@@ -17,6 +20,17 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Android / Gradle
+.gradle/
+android/.gradle/
+android/local.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# Linux generated runner files
+linux/flutter/ephemeral/
 
 # Aegis / git worktrees
 .worktrees/
@@ -29,3 +43,6 @@ worktrees/
 # Android release signing secrets
 android/key.properties
 android/app/*.jks
+android/app/*.keystore
+*.keystore
+*.jks
