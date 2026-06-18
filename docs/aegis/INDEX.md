@@ -1,0 +1,18 @@
+# Aegis Index
+
+- 2026-06-16: `plans/2026-06-16-phase-1-foundation.md` - Phase 1 Flutter, Riverpod, Isar, and timetable grid implementation plan.
+- 2026-06-16: `work/2026-06-16-phase-1-foundation/10-intent.md` - Task intent and scope checkpoint.
+- 2026-06-16: `baseline/2026-06-16-initial-baseline.md` - Initial KiroTime project baseline.
+- 2026-06-16: `plans/2026-06-16-phase-2-html-import.md` - Phase 2 WebView HTML import and Android install plan.
+- 2026-06-16: `work/2026-06-16-phase-2-html-import/10-intent.md` - Phase 2 import intent and scope checkpoint.
+- 2026-06-17: `plans/2026-06-17-interactive-timetable-usability.md` - Interactive timetable usability repair plan.
+- 2026-06-17: `plans/2026-06-17-timetable-settings-and-terms.md` - Configurable section count, week swipe, and lightweight term management plan.
+- 2026-06-17: `plans/2026-06-17-timetable-conflicts-and-semester-persistence.md` - Conflict card UI, richer course details, persistent semester management, and semester-scoped courses.
+- 2026-06-17: `plans/2026-06-17-course-dialogs-management-and-polish.md` - Centered dialogs, course management, semester delete/display names, pastel cards, and week animation.
+- 2026-06-17: `plans/2026-06-17-import-semester-metadata.md` - Import first-week date and teaching class metadata from school timetable HTML.
+- 2026-06-17: `plans/2026-06-17-settings-center-and-local-data.md` - Settings center, explicit semester setup, appearance preferences, local JSON import/export, and advanced import settings.
+- 2026-06-17: `plans/2026-06-17-settings-interaction-polish.md` - Stable semester switcher, smoother week transitions, and clearer wheel picker selected states.
+- 2026-06-18: `plans/2026-06-18-android-downloads-import-export.md` - Android Downloads/KiroTime export, local JSON picker import, rename/collision choices, and import modes.
+- 2026-06-18: `plans/2026-06-18-android-formal-release.md` - Formal Android package id, app label, release signing, version bump, clear-all data action, and about dialog.
+- 2026-06-18: `plans/2026-06-18-privacy-hardening.md` - In-app privacy notice, safer WebView defaults, export warnings, privacy docs, and release rebuild.
+- 2026-06-18: `plans/2026-06-18-section-time-settings.md` - Per-semester class time generation, manual section overrides, real timetable time labels, and course detail time ranges.

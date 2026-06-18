@@ -1,0 +1,51 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:kiro_time/features/settings/domain/import_preferences.dart';
+import 'package:kiro_time/features/settings/domain/timetable_appearance_settings.dart';
+
+void main() {
+  test('appearance settings round-trip from json with defaults', () {
+    final settings = TimetableAppearanceSettings.defaults().copyWith(
+      colorScheme: CourseColorScheme.highContrast,
+      showWeekend: false,
+      density: CourseCardDensity.compact,
+      fontSize: CourseFontSize.large,
+      showTeacher: false,
+    );
+
+    final decoded = TimetableAppearanceSettings.fromJson(settings.toJson());
+
+    expect(decoded.colorScheme, CourseColorScheme.highContrast);
+    expect(decoded.showWeekend, isFalse);
+    expect(decoded.density, CourseCardDensity.compact);
+    expect(decoded.fontSize, CourseFontSize.large);
+    expect(decoded.showCourseName, isTrue);
+    expect(decoded.showClassroom, isTrue);
+    expect(decoded.showTeacher, isFalse);
+  });
+
+  test('import preferences expose effective user agent', () {
+    final mobile = ImportPreferences.defaults();
+    final desktop = mobile.copyWith(userAgentMode: UserAgentMode.desktop);
+    final custom = mobile.copyWith(
+      userAgentMode: UserAgentMode.custom,
+      customUserAgent: 'Custom UA',
+    );
+
+    expect(mobile.effectiveUserAgent, contains('Mobile'));
+    expect(desktop.effectiveUserAgent, contains('Windows NT'));
+    expect(custom.effectiveUserAgent, 'Custom UA');
+    expect(
+      ImportPreferences.fromJson(custom.toJson()).effectiveUserAgent,
+      'Custom UA',
+    );
+  });
+
+  test('import preferences default to private import behavior', () {
+    final defaults = ImportPreferences.defaults();
+
+    expect(defaults.academicSystemUrl, isEmpty);
+    expect(defaults.semesterApiPath, isEmpty);
+    expect(defaults.keepWebViewLoginState, isFalse);
+    expect(defaults.keepHtmlDiagnostics, isFalse);
+  });
+}
