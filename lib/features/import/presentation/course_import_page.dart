@@ -9,6 +9,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../../core/database/isar_database.dart';
 import '../../settings/application/settings_providers.dart';
 import '../../timetable/application/timetable_providers.dart';
+import '../domain/academic_timetable_api_probe.dart';
 import '../domain/academic_timetable_html_parser.dart';
 import '../domain/academic_timetable_json_parser.dart';
 import '../domain/webview_html_codec.dart';
@@ -29,6 +30,10 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
   String _lastImportSource = '未导入';
   String? _lastSemesterApiError;
   int? _lastImportedScheduleCount;
+  List<String> _lastProbeCandidates = const <String>[];
+  Map<String, String> _lastProbeErrors = const <String, String>{};
+  ImportPreviewSummary? _lastPreviewSummary;
+  List<String> _lastJsonCourseSamples = const <String>[];
 
   @override
   void initState() {
@@ -92,93 +97,19 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     });
 
     try {
-      final selectedSemester = ref.read(semesterSettingsProvider);
-      ImportedTimetable? imported;
-      var importSource = '';
-      _lastSemesterApiError = null;
-
-      final selectedTermPayload = await _readSemesterTimetableJson(
-        schoolYearStart: selectedSemester.schoolYearStart,
-        semester: selectedSemester.semester,
-      );
-      if (selectedTermPayload != null) {
-        try {
-          final candidate = AcademicTimetableJsonParser.parse(
-            selectedTermPayload,
-          );
-          if (candidate.schedules.isNotEmpty) {
-            imported = candidate;
-            importSource = '${selectedSemester.label}接口';
-          }
-        } catch (error) {
-          _lastSemesterApiError = '当前学期接口解析失败：$error';
-        }
-      }
-
-      if (imported == null) {
-        final pageTermPayload = await _readSemesterTimetableJson();
-        if (pageTermPayload != null) {
-          try {
-            final candidate = AcademicTimetableJsonParser.parse(
-              pageTermPayload,
-            );
-            if (candidate.schedules.isNotEmpty) {
-              imported = candidate;
-              importSource = '页面当前学期接口';
-            }
-          } catch (error) {
-            _lastSemesterApiError = '页面当前学期接口解析失败：$error';
-          }
-        }
-      }
-
-      if (imported == null) {
-        final html = await _readCurrentPageHtml();
-        if (html == null || html.isEmpty) {
-          _showMessage('导入失败：页面 HTML 为空');
-          return;
-        }
-        _lastImportHtml = html;
-        imported = AcademicTimetableHtmlParser.parse(html);
-        importSource = '当前页面 HTML';
-      }
-
-      if (imported.schedules.isEmpty) {
+      final prepared = await _prepareImport();
+      if (prepared == null) {
         final html = _lastImportHtml ?? await _readCurrentPageHtml() ?? '';
         _showMessage('导入失败：${_buildNoCourseMessage(html)}');
         return;
       }
-      final importedTimetable = imported;
-      _lastImportSource = importSource;
 
-      await ref.read(applyImportedSemesterMetadataProvider)(
-        semesterStart: importedTimetable.semesterStart,
-      );
-
-      final isar = await ref.read(isarProvider.future);
-      final semesterId = ref.read(selectedSemesterIdProvider);
-      await KiroTimeDatabase.replaceWithImportedData(
-        isar,
-        semesterId: semesterId,
-        metas: importedTimetable.metas,
-        schedules: importedTimetable.schedules,
-      );
-
-      ref.invalidate(courseMetasProvider);
-      ref.invalidate(allCourseSchedulesProvider);
-      ref.invalidate(currentWeekSchedulesProvider);
-      ref.invalidate(timetablePlacementsProvider);
-      ref.invalidate(timetableVisibleItemsProvider);
-
-      if (!mounted) {
+      final confirmed = await _showImportPreview(prepared);
+      if (confirmed != true) {
         return;
       }
-      setState(() {
-        _lastImportedScheduleCount = importedTimetable.schedules.length;
-      });
-      _showMessage(
-        '已从$importSource导入 ${importedTimetable.schedules.length} 条上课安排',
-      );
+
+      await _persistPreparedImport(prepared);
     } catch (error) {
       _showMessage('导入失败：$error');
     } finally {
@@ -190,17 +121,266 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     }
   }
 
-  Future<String?> _readSemesterTimetableJson({
+  Future<void> _probeSemesterApi() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final html = await _requireCurrentPageHtml();
+      final selectedSemester = ref.read(semesterSettingsProvider);
+      final candidates = _buildProbeCandidates(html);
+      if (candidates.isEmpty) {
+        _showMessage('未找到可探测的接口候选，请复制诊断摘要');
+        return;
+      }
+
+      final result = await _probeCandidates(
+        candidates,
+        schoolYearStart: selectedSemester.schoolYearStart,
+        semester: selectedSemester.semester,
+      );
+      if (result == null) {
+        _showMessage('接口探测失败，请复制诊断摘要');
+        return;
+      }
+
+      final confirmed = await _showImportPreview(result);
+      if (confirmed == true) {
+        await _persistPreparedImport(result);
+      }
+    } catch (error) {
+      _showMessage('探测失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<_PreparedImport?> _prepareImport() async {
+    final selectedSemester = ref.read(semesterSettingsProvider);
+    _lastSemesterApiError = null;
+    _lastProbeErrors = const <String, String>{};
+
+    final html = await _readCurrentPageHtml();
+    if (html != null && html.isNotEmpty) {
+      _lastImportHtml = html;
+    }
+
+    final candidates = _buildProbeCandidates(html ?? '');
+    final apiResult = await _probeCandidates(
+      candidates,
+      schoolYearStart: selectedSemester.schoolYearStart,
+      semester: selectedSemester.semester,
+    );
+    if (apiResult != null) {
+      return apiResult;
+    }
+
+    if (html == null || html.isEmpty) {
+      return null;
+    }
+
+    final imported = AcademicTimetableHtmlParser.parse(html);
+    if (imported.schedules.isEmpty) {
+      return null;
+    }
+    return _PreparedImport(
+      timetable: imported,
+      source: '当前页面 HTML',
+      path: null,
+      summary: ImportPreviewSummary.fromTimetable(imported),
+    );
+  }
+
+  List<String> _buildProbeCandidates(String html) {
+    final candidates = AcademicTimetableApiProbe.buildCandidatePaths(
+      configuredPath: ref.read(importPreferencesProvider).semesterApiPath,
+      currentUrl: _currentUrl,
+      pageText: html,
+    );
+    setState(() {
+      _lastProbeCandidates = candidates;
+    });
+    return candidates;
+  }
+
+  Future<_PreparedImport?> _probeCandidates(
+    List<String> candidates, {
     int? schoolYearStart,
     int? semester,
   }) async {
-    final semesterApiPath = ref
-        .read(importPreferencesProvider)
-        .semesterApiPath
-        .trim();
-    if (semesterApiPath.isEmpty) {
+    final errors = <String, String>{};
+    final successfulCandidates = <TimetableProbeCandidate>[];
+    final payloadsByPath = <String, String>{};
+    for (final path in candidates) {
+      try {
+        final payload = await _readSemesterTimetableJsonFromPath(
+          path,
+          schoolYearStart: schoolYearStart,
+          semester: semester,
+        );
+        if (payload == null) {
+          errors[path] = _lastSemesterApiError ?? '未返回课表 JSON';
+          continue;
+        }
+        final timetable = AcademicTimetableJsonParser.parse(payload);
+        if (timetable.schedules.isEmpty) {
+          errors[path] = '接口返回中没有可导入课程';
+          continue;
+        }
+        successfulCandidates.add(
+          TimetableProbeCandidate(path: path, timetable: timetable),
+        );
+        payloadsByPath[path] = payload;
+      } catch (error) {
+        errors[path] = error.toString();
+      }
+    }
+
+    final selected = AcademicTimetableApiProbe.selectBestCandidate(
+      successfulCandidates,
+    );
+    _lastProbeErrors = Map<String, String>.unmodifiable(errors);
+    _lastSemesterApiError = selected == null
+        ? errors.isEmpty
+              ? '没有接口候选'
+              : errors.entries
+                    .map((entry) => '${entry.key}: ${entry.value}')
+                    .join(' | ')
+        : null;
+    if (selected == null) {
+      _lastJsonCourseSamples = const <String>[];
       return null;
     }
+
+    _lastJsonCourseSamples = _buildJsonCourseSamples(
+      payloadsByPath[selected.path] ?? '',
+    );
+    return _PreparedImport(
+      timetable: selected.timetable,
+      source: '接口探测',
+      path: selected.path,
+      summary: selected.summary,
+    );
+  }
+
+  Future<void> _saveDetectedApiPath(String path) async {
+    final current = ref.read(importPreferencesProvider);
+    if (current.semesterApiPath == path) {
+      return;
+    }
+    await ref.read(saveImportPreferencesProvider)(
+      current.copyWith(semesterApiPath: path),
+    );
+  }
+
+  Future<void> _persistPreparedImport(_PreparedImport prepared) async {
+    final importedTimetable = prepared.timetable;
+    _lastImportSource = prepared.source;
+    _lastPreviewSummary = prepared.summary;
+
+    final detectedPath = prepared.path;
+    if (detectedPath != null) {
+      await _saveDetectedApiPath(detectedPath);
+    }
+
+    await ref.read(applyImportedSemesterMetadataProvider)(
+      semesterStart: importedTimetable.semesterStart,
+    );
+
+    final isar = await ref.read(isarProvider.future);
+    final semesterId = ref.read(selectedSemesterIdProvider);
+    await KiroTimeDatabase.replaceWithImportedData(
+      isar,
+      semesterId: semesterId,
+      metas: importedTimetable.metas,
+      schedules: importedTimetable.schedules,
+    );
+
+    ref.invalidate(courseMetasProvider);
+    ref.invalidate(allCourseSchedulesProvider);
+    ref.invalidate(currentWeekSchedulesProvider);
+    ref.invalidate(timetablePlacementsProvider);
+    ref.invalidate(timetableVisibleItemsProvider);
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _lastImportedScheduleCount = importedTimetable.schedules.length;
+    });
+    _showMessage(
+      '已从${prepared.source}导入 ${importedTimetable.schedules.length} 条上课安排',
+    );
+  }
+
+  Future<bool?> _showImportPreview(_PreparedImport prepared) {
+    _lastPreviewSummary = prepared.summary;
+    final summary = prepared.summary;
+    return showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('导入预览'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _PreviewLine(label: '来源', value: prepared.source),
+                if (prepared.path != null)
+                  _PreviewLine(label: '接口', value: prepared.path!),
+                _PreviewLine(label: '课程数', value: '${summary.courseCount} 门'),
+                _PreviewLine(label: '安排数', value: '${summary.scheduleCount} 条'),
+                if (summary.isSuspicious) ...<Widget>[
+                  const SizedBox(height: 12),
+                  Text(
+                    '发现疑似堆叠：',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: Colors.orange.shade800,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  for (final slot in summary.crowdedSlots.take(5))
+                    Text(
+                      '第${slot.week}周 ${_weekdayLabel(slot.dayOfWeek)} 第${slot.startSection}-${slot.endSection}节：${slot.count} 条',
+                    ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '建议先取消并复制诊断摘要，避免覆盖原课表。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: summary.isSuspicious
+                  ? null
+                  : () => Navigator.of(context).pop(true),
+              child: const Text('确认导入'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<String?> _readSemesterTimetableJsonFromPath(
+    String semesterApiPath, {
+    int? schoolYearStart,
+    int? semester,
+  }) async {
     final xnmExpression = schoolYearStart == null
         ? r"readValue('#xnm_hide')"
         : jsonEncode(schoolYearStart.toString());
@@ -398,6 +578,31 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
         trimmedHtml.startsWith('[') || trimmedHtml.startsWith('{')
         ? 'JSON'
         : 'HTML';
+    final probeCandidates = _lastProbeCandidates.isEmpty
+        ? 'none'
+        : _lastProbeCandidates.join('\n');
+    final probeErrors = _lastProbeErrors.isEmpty
+        ? 'none'
+        : _lastProbeErrors.entries
+              .map((entry) => '${entry.key}: ${entry.value}')
+              .join('\n');
+    final previewSummary = _lastPreviewSummary;
+    final previewText = previewSummary == null
+        ? 'none'
+        : 'courses=${previewSummary.courseCount}, schedules=${previewSummary.scheduleCount}, suspicious=${previewSummary.isSuspicious}';
+    final crowdedSlots =
+        previewSummary == null || previewSummary.crowdedSlots.isEmpty
+        ? 'none'
+        : previewSummary.crowdedSlots
+              .take(10)
+              .map(
+                (slot) =>
+                    '第${slot.week}周 ${_weekdayLabel(slot.dayOfWeek)} 第${slot.startSection}-${slot.endSection}节: ${slot.count}',
+              )
+              .join('\n');
+    final jsonSamples = _lastJsonCourseSamples.isEmpty
+        ? 'none'
+        : _lastJsonCourseSamples.join('\n');
 
     return '''
 KiroTime 导入诊断摘要
@@ -410,6 +615,21 @@ Semester API error: ${_lastSemesterApiError ?? 'none'}
 Contains undefined: ${text.contains('undefined')}
 Contains no-course hint: ${text.contains('无课') || text.contains('暂无课程') || text.contains('查询结果为无课')}
 
+Probe candidates:
+$probeCandidates
+
+Probe errors:
+$probeErrors
+
+Preview:
+$previewText
+
+Crowded slots:
+$crowdedSlots
+
+JSON course samples:
+$jsonSamples
+
 Week-related text:
 $weekLines
 
@@ -418,12 +638,92 @@ $styleSamples
 ''';
   }
 
+  List<String> _buildJsonCourseSamples(String payload) {
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map) {
+        return const <String>[];
+      }
+      final samples = <String>[];
+      for (final listKey in const <String>['kbList', 'sjkList']) {
+        final rawList = decoded[listKey];
+        if (rawList is! List) {
+          continue;
+        }
+        var count = 0;
+        for (final item in rawList.whereType<Map>()) {
+          final sample = _compactJsonCourseSample(listKey, item);
+          if (sample.isNotEmpty) {
+            samples.add(sample);
+            count++;
+          }
+          if (count >= 6 || samples.length >= 12) {
+            break;
+          }
+        }
+        if (samples.length >= 12) {
+          break;
+        }
+      }
+      return List<String>.unmodifiable(samples);
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
+  String _compactJsonCourseSample(String listKey, Map item) {
+    const preferredKeys = <String>[
+      'kcmc',
+      'jxbmc',
+      'xm',
+      'xqj',
+      'jcs',
+      'zcd',
+      'xqmc',
+      'cdmc',
+      'kcxzmc',
+      'kclbmc',
+      'khfsmc',
+      'kcbj',
+      'xkbz',
+      'sxbj',
+      'zt',
+      'sfyx',
+    ];
+    final parts = <String>[];
+    for (final key in preferredKeys) {
+      final value = item[key];
+      if (value == null || value.toString().trim().isEmpty) {
+        continue;
+      }
+      parts.add('$key=${_redactDiagnosticValue(key, value.toString())}');
+    }
+    if (parts.isEmpty) {
+      return '';
+    }
+    return '$listKey: ${parts.join(', ')}';
+  }
+
+  String _redactDiagnosticValue(String key, String value) {
+    final normalizedKey = key.toLowerCase();
+    if (normalizedKey.contains('xh') ||
+        normalizedKey.contains('xm') && key != 'xm') {
+      return '<redacted>';
+    }
+    return value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
   String _firstMatch(String input, RegExp pattern) {
     final match = pattern.firstMatch(input);
     if (match == null || match.groupCount < 1) {
       return '';
     }
     return match.group(1)?.trim() ?? '';
+  }
+
+  String _weekdayLabel(int dayOfWeek) {
+    const labels = <String>['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    return labels[(dayOfWeek - 1).clamp(0, labels.length - 1)];
   }
 
   void _showMessage(String message) {
@@ -490,6 +790,15 @@ $styleSamples
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _probeSemesterApi,
+                    icon: const Icon(Icons.travel_explore_outlined),
+                    label: const Text('自动探测接口'),
+                  ),
+                ),
                 if (_currentUrl.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 8),
                   Text(
@@ -546,4 +855,54 @@ $styleSamples
       ),
     );
   }
+}
+
+class _PreviewLine extends StatelessWidget {
+  const _PreviewLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: 64,
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: const Color(0xFF6F7881)),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreparedImport {
+  const _PreparedImport({
+    required this.timetable,
+    required this.source,
+    required this.path,
+    required this.summary,
+  });
+
+  final ImportedTimetable timetable;
+  final String source;
+  final String? path;
+  final ImportPreviewSummary summary;
 }

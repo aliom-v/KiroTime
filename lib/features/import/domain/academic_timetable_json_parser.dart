@@ -148,7 +148,7 @@ class AcademicTimetableJsonParser {
   }
 
   static String _cleanCourseName(String value) {
-    return value.replaceAll(RegExp(r'[★☆◆■〇●※]+$'), '').trim();
+    return value.trim();
   }
 
   static String _string(Object? value) {

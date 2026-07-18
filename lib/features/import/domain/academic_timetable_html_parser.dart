@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../../features/courses/data/course_meta.dart';
 import '../../../features/courses/data/course_schedule.dart';
 import '../../courses/domain/course_week_text.dart';
+import '../../timetable/domain/semester_settings.dart';
 
 class ImportedTimetable {
   const ImportedTimetable({
@@ -23,7 +24,8 @@ class AcademicTimetableHtmlParser {
 
   static const Uuid _uuid = Uuid();
   static const int _dayCount = 7;
-  static const int _sectionCount = 12;
+  static const int _maxSectionCount = SemesterSettings.maxSectionCount;
+  static const int _percentPositionSectionCount = 12;
 
   static ImportedTimetable parse(String html) {
     final metas = <CourseMeta>[];
@@ -384,8 +386,8 @@ class AcademicTimetableHtmlParser {
     }
     return _Placement(
       dayOfWeek: _clampInt(dayOfWeek, 1, _dayCount),
-      startSection: _clampInt(startSection, 1, _sectionCount),
-      endSection: _clampInt(endSection, 1, _sectionCount),
+      startSection: _clampInt(startSection, 1, _maxSectionCount),
+      endSection: _clampInt(endSection, 1, _maxSectionCount),
     );
   }
 
@@ -425,11 +427,15 @@ class AcademicTimetableHtmlParser {
       styles['grid-row-end'],
     );
     if (gridColumn != null && gridRow != null) {
-      final startSection = _clampInt(gridRow.start, 1, _sectionCount);
+      final startSection = _clampInt(gridRow.start, 1, _maxSectionCount);
       return _Placement(
         dayOfWeek: _clampInt(gridColumn.start, 1, _dayCount),
         startSection: startSection,
-        endSection: _clampInt(gridRow.endLine - 1, startSection, _sectionCount),
+        endSection: _clampInt(
+          gridRow.endLine - 1,
+          startSection,
+          _maxSectionCount,
+        ),
       );
     }
 
@@ -483,16 +489,17 @@ class AcademicTimetableHtmlParser {
     }
 
     final startSection = _clampInt(
-      (top.value / (100 / _sectionCount)).round() + 1,
+      (top.value / (100 / _percentPositionSectionCount)).round() + 1,
       1,
-      _sectionCount,
+      _percentPositionSectionCount,
     );
     var endSection = startSection;
     if (height != null && top.unit == height.unit) {
       endSection = _clampInt(
-        ((top.value + height.value) / (100 / _sectionCount)).round(),
+        ((top.value + height.value) / (100 / _percentPositionSectionCount))
+            .round(),
         startSection,
-        _sectionCount,
+        _percentPositionSectionCount,
       );
     }
 
@@ -512,11 +519,11 @@ class AcademicTimetableHtmlParser {
       return null;
     }
 
-    final startSection = _clampInt(rowStart, 1, _sectionCount);
+    final startSection = _clampInt(rowStart, 1, _maxSectionCount);
     return _Placement(
       dayOfWeek: _clampInt(colStart, 1, _dayCount),
       startSection: startSection,
-      endSection: _clampInt(rowEnd - 1, startSection, _sectionCount),
+      endSection: _clampInt(rowEnd - 1, startSection, _maxSectionCount),
     );
   }
 
@@ -555,13 +562,23 @@ class AcademicTimetableHtmlParser {
   }
 
   static List<dom.Element> _directTableRows(dom.Element table) {
-    final rowParent = table.children.firstWhere(
-      (child) => child.localName == 'tbody' || child.localName == 'thead',
-      orElse: () => table,
-    );
-    return rowParent.children
-        .where((child) => child.localName == 'tr')
-        .toList();
+    final rows = <dom.Element>[];
+    for (final child in table.children) {
+      if (child.localName == 'tr') {
+        rows.add(child);
+        continue;
+      }
+      if (child.localName == 'thead' ||
+          child.localName == 'tbody' ||
+          child.localName == 'tfoot') {
+        rows.addAll(
+          child.children.where(
+            (sectionChild) => sectionChild.localName == 'tr',
+          ),
+        );
+      }
+    }
+    return rows;
   }
 
   static int? _parseDayHeader(String text) {
@@ -606,13 +623,13 @@ class AcademicTimetableHtmlParser {
         final match = RegExp(r'^\d{1,2}$').firstMatch(line);
         if (match != null) {
           final parsed = int.tryParse(match.group(0)!);
-          if (parsed != null && parsed >= 1 && parsed <= _sectionCount) {
+          if (parsed != null && parsed >= 1 && parsed <= _maxSectionCount) {
             return parsed;
           }
         }
       }
     }
-    return fallbackSection >= 1 && fallbackSection <= _sectionCount
+    return fallbackSection >= 1 && fallbackSection <= _maxSectionCount
         ? fallbackSection
         : null;
   }
@@ -629,8 +646,8 @@ class AcademicTimetableHtmlParser {
     }
     return _Placement(
       dayOfWeek: _clampInt(dayOfWeek, 1, _dayCount),
-      startSection: _clampInt(startSection, 1, _sectionCount),
-      endSection: _clampInt(startSection, 1, _sectionCount),
+      startSection: _clampInt(startSection, 1, _maxSectionCount),
+      endSection: _clampInt(startSection, 1, _maxSectionCount),
     );
   }
 
@@ -709,6 +726,14 @@ class AcademicTimetableHtmlParser {
       if (endLine != null) {
         return _GridLineRange(start: startLine, endLine: endLine);
       }
+    }
+
+    final explicitSpan = endValue == null ? null : _parseSpan(endValue);
+    if (explicitSpan != null) {
+      return _GridLineRange(
+        start: startLine,
+        endLine: startLine + explicitSpan,
+      );
     }
 
     final explicitEnd = _parseGridLine(endValue);
@@ -938,7 +963,9 @@ class AcademicTimetableHtmlParser {
 
   static bool _looksLikeCourseCodeLine(String line, String courseName) {
     final comparableLine = _normalizeComparableText(line);
-    final comparableName = _normalizeComparableText(courseName);
+    final comparableName = _normalizeComparableText(
+      _stripCourseTypeMarkers(courseName),
+    );
     if (!comparableLine.startsWith(comparableName) ||
         comparableLine.length <= comparableName.length) {
       return false;
@@ -947,6 +974,10 @@ class AcademicTimetableHtmlParser {
     final suffix = comparableLine.substring(comparableName.length);
     return RegExp(r'^[-_#]?[A-Za-z0-9]+$').hasMatch(suffix) ||
         RegExp(r'^[-_#]?\d{2,}$').hasMatch(suffix);
+  }
+
+  static String _stripCourseTypeMarkers(String value) {
+    return value.replaceAll(RegExp(r'[★☆◆■〇●※]+$'), '').trim();
   }
 
   static bool _looksLikeDayTimeLine(String line) {
@@ -1028,6 +1059,10 @@ class AcademicTimetableHtmlParser {
   }
 
   static bool _looksLikeTimetableCard(dom.Element element) {
+    if (_hasMultipleNestedTimetableCards(element)) {
+      return false;
+    }
+
     final lines = _extractCellLines(
       element,
     ).map(_cleanLabeledValue).where((line) => line.isNotEmpty).toList();
@@ -1049,6 +1084,22 @@ class AcademicTimetableHtmlParser {
         marker.contains('kb') ||
         marker.contains('card') ||
         marker.contains('cell');
+  }
+
+  static bool _hasMultipleNestedTimetableCards(dom.Element element) {
+    final nestedCandidates = element
+        .querySelectorAll('.lesson,.course-card,.card,.kb-card,.cell')
+        .where((candidate) => candidate != element)
+        .where((candidate) {
+          final lines = _extractCellLines(
+            candidate,
+          ).map(_cleanLabeledValue).where((line) => line.isNotEmpty).toList();
+          return lines.length >= 3 &&
+              lines.any((line) => parseWeeks(line).isNotEmpty);
+        })
+        .take(2)
+        .length;
+    return nestedCandidates > 1;
   }
 
   static bool _hasExplicitScheduleAttributes(dom.Element element) {

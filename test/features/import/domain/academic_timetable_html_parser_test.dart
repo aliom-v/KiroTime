@@ -1209,6 +1209,56 @@ void main() {
       },
     );
 
+    test('keeps non-theory marker in table course names', () {
+      const html = '''
+      <html>
+        <body>
+          <table>
+            <tr>
+              <th></th>
+              <th>周一</th>
+              <th>周二</th>
+              <th>周三</th>
+              <th>周四</th>
+              <th>周五</th>
+              <th>周六</th>
+              <th>周日</th>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td></td>
+              <td rowspan="4">
+                <div class="lesson">
+                  <table><tbody>
+                    <tr><td><p>计算机网络原理■</p></td></tr>
+                    <tr><td><p>计算机网络原理-0001A</p></td></tr>
+                    <tr><td><p>示例校区 3#315机房</p></td></tr>
+                    <tr><td><p>教师A</p></td></tr>
+                    <tr><td><p>(5-8节)15周</p></td></tr>
+                  </tbody></table>
+                </div>
+              </td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td></td>
+            </tr>
+          </table>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.metas.single.name, '计算机网络原理■');
+      expect(timetable.metas.single.teachingClass, '计算机网络原理-0001A');
+      expect(timetable.schedules.single.dayOfWeek, 2);
+      expect(timetable.schedules.single.startSection, 5);
+      expect(timetable.schedules.single.endSection, 8);
+      expect(timetable.schedules.single.weeks, <int>[15]);
+    });
+
     test('extracts labeled newline-separated table cell text', () {
       const html = '''
       <html>
@@ -1306,6 +1356,163 @@ void main() {
         timetable.metas.map((meta) => meta.name),
         containsAll(<String>['操作系统', '软件工程']),
       );
+    });
+
+    test('does not parse an outer timetable container as one course card', () {
+      const html = '''
+      <html>
+        <body>
+          <div class="kb timetable-card"
+               style="position:absolute;left:0%;top:0%;width:100%;height:100%;">
+            <div class="lesson"
+                 style="position:absolute;left:0%;top:0%;width:14.285%;height:16.666%;">
+              <p>操作系统</p>
+              <p>操作系统-0011</p>
+              <p>南校区 3#504</p>
+              <p>吕林涛</p>
+              <p>1-5周</p>
+            </div>
+            <div class="lesson"
+                 style="position:absolute;left:14.285%;top:16.666%;width:14.285%;height:16.666%;">
+              <p>软件工程</p>
+              <p>软件工程-0004</p>
+              <p>南校区 3#602</p>
+              <p>王钒霖</p>
+              <p>1-5周</p>
+            </div>
+          </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, hasLength(2));
+      final operatingSystem = timetable.metas.singleWhere(
+        (meta) => meta.name == '操作系统',
+      );
+      final operatingSystemSchedule = timetable.schedules.singleWhere(
+        (schedule) => schedule.courseMetaId == operatingSystem.id,
+      );
+      expect(operatingSystemSchedule.dayOfWeek, 1);
+      expect(operatingSystemSchedule.startSection, 1);
+
+      final softwareEngineering = timetable.metas.singleWhere(
+        (meta) => meta.name == '软件工程',
+      );
+      final softwareEngineeringSchedule = timetable.schedules.singleWhere(
+        (schedule) => schedule.courseMetaId == softwareEngineering.id,
+      );
+      expect(softwareEngineeringSchedule.dayOfWeek, 2);
+      expect(softwareEngineeringSchedule.startSection, 3);
+    });
+
+    test('reads course rows when table head and body are separate', () {
+      const html = '''
+      <html>
+        <body>
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>周一</th>
+                <th>周二</th>
+                <th>周三</th>
+                <th>周四</th>
+                <th>周五</th>
+                <th>周六</th>
+                <th>周日</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td rowspan="2">
+                  操作系统<br>
+                  南校区 3#504<br>
+                  吕林涛<br>
+                  1-5周
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, hasLength(1));
+      expect(timetable.metas.single.name, '操作系统');
+      expect(timetable.schedules.single.dayOfWeek, 1);
+      expect(timetable.schedules.single.startSection, 1);
+      expect(timetable.schedules.single.endSection, 2);
+    });
+
+    test('parses separate CSS grid start and span end properties', () {
+      const html = '''
+      <html>
+        <body>
+          <div class="kb-grid">
+            <div class="lesson"
+                 style="grid-column-start:2;grid-column-end:span 1;grid-row-start:3;grid-row-end:span 2;">
+              <p>操作系统</p>
+              <p>南校区 3#504</p>
+              <p>吕林涛</p>
+              <p>1-5周</p>
+            </div>
+          </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, hasLength(1));
+      expect(timetable.schedules.single.dayOfWeek, 2);
+      expect(timetable.schedules.single.startSection, 3);
+      expect(timetable.schedules.single.endSection, 4);
+    });
+
+    test('keeps explicit HTML schedules in sections thirteen to sixteen', () {
+      const html = '''
+      <html>
+        <body>
+          <table>
+            <tr>
+              <td data-day="7" data-start-section="13" data-end-section="16">
+                晚间课程<br>
+                南校区 报告厅<br>
+                吕林涛<br>
+                1-5周
+              </td>
+            </tr>
+          </table>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, hasLength(1));
+      expect(timetable.schedules.single.dayOfWeek, 7);
+      expect(timetable.schedules.single.startSection, 13);
+      expect(timetable.schedules.single.endSection, 16);
     });
   });
 }

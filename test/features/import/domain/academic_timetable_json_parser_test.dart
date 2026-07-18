@@ -138,5 +138,34 @@ void main() {
       expect(timetable.schedules.single.startSection, 1);
       expect(timetable.schedules.single.endSection, 10);
     });
+
+    test('keeps non-theory course marker in imported course name', () {
+      const source = '''
+      {
+        "kbList": [
+          {
+            "kcmc": "计算机网络原理■",
+            "jxbmc": "计算机网络原理-0001A",
+            "xqmc": "示例校区",
+            "cdmc": "3#315机房",
+            "xm": "教师A",
+            "zcd": "15周",
+            "xqj": "2",
+            "jcs": "5-8"
+          }
+        ],
+        "sjkList": []
+      }
+      ''';
+
+      final timetable = AcademicTimetableJsonParser.parse(source);
+
+      expect(timetable.metas.single.name, '计算机网络原理■');
+      expect(timetable.metas.single.teachingClass, '计算机网络原理-0001A');
+      expect(timetable.schedules.single.dayOfWeek, 2);
+      expect(timetable.schedules.single.startSection, 5);
+      expect(timetable.schedules.single.endSection, 8);
+      expect(timetable.schedules.single.weeks, <int>[15]);
+    });
   });
 }

@@ -16,3 +16,8 @@
 - 2026-06-18: `plans/2026-06-18-android-formal-release.md` - Formal Android package id, app label, release signing, version bump, clear-all data action, and about dialog.
 - 2026-06-18: `plans/2026-06-18-privacy-hardening.md` - In-app privacy notice, safer WebView defaults, export warnings, privacy docs, and release rebuild.
 - 2026-06-18: `plans/2026-06-18-section-time-settings.md` - Per-semester class time generation, manual section overrides, real timetable time labels, and course detail time ranges.
+- 2026-06-20: `plans/2026-06-20-import-probe-preview.md` - WebView semester API probing, import preview, failure diagnostics, and conservative HTML fallback repair.
+- 2026-07-18: `plans/2026-07-18-import-parser-hardening.md` - Standard table parsing, CSS Grid span repair, 16-section HTML support, API candidate ranking, and confirmed path persistence.
+- 2026-07-18: `work/2026-07-18-import-parser-hardening/10-intent.md` - Import parser hardening intent, baseline read set, impact statement, and scope boundary.
+- 2026-07-18: `work/2026-07-18-import-parser-hardening/90-evidence.md` - RED/GREEN results, related regression evidence, static analysis, and full-suite residual test diagnosis.
+- 2026-07-18: `work/2026-07-18-import-parser-hardening/99-reflection.md` - Repair/retirement closure, architecture review, confidence, and residual risk.
