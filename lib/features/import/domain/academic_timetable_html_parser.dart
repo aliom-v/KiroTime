@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../../features/courses/data/course_meta.dart';
 import '../../../features/courses/data/course_schedule.dart';
 import '../../courses/domain/course_week_text.dart';
+import '../../timetable/domain/academic_calendar.dart';
 import '../../timetable/domain/semester_settings.dart';
 
 class ImportedTimetable {
@@ -25,7 +26,9 @@ class AcademicTimetableHtmlParser {
   static const Uuid _uuid = Uuid();
   static const int _dayCount = 7;
   static const int _maxSectionCount = SemesterSettings.maxSectionCount;
+  static const int _maxWeek = AcademicCalendar.maxWeek;
   static const int _percentPositionSectionCount = 12;
+  static const int _extendedPercentPositionSectionCount = 16;
 
   static ImportedTimetable parse(String html) {
     final metas = <CourseMeta>[];
@@ -75,7 +78,22 @@ class AcademicTimetableHtmlParser {
   }
 
   static List<int> parseWeeks(String text) {
-    return CourseWeekText.parse(_stripSectionRange(text));
+    final weekText = _stripSectionRange(text);
+    if (!_looksLikeHtmlWeekLine(weekText)) {
+      return const <int>[];
+    }
+
+    final weeks = CourseWeekText.parse(weekText);
+    if (weeks.isEmpty || weeks.any((week) => week < 1 || week > _maxWeek)) {
+      return const <int>[];
+    }
+    return weeks;
+  }
+
+  static bool _looksLikeHtmlWeekLine(String text) {
+    final compact = _normalizeComparableText(text);
+    return compact.isNotEmpty &&
+        RegExp(r'(?:周|单|双|[-－—至到,，、;；])').hasMatch(compact);
   }
 
   static void _addAllFromDocument(
@@ -484,26 +502,64 @@ class AcademicTimetableHtmlParser {
     required _CssLength? top,
     required _CssLength? height,
   }) {
-    if (top == null) {
+    if (top == null ||
+        top.unit != '%' ||
+        (height != null && height.unit != '%')) {
       return null;
     }
 
+    final sectionCount = _inferPercentageSectionCount(top, height);
     final startSection = _clampInt(
-      (top.value / (100 / _percentPositionSectionCount)).round() + 1,
+      (top.value / (100 / sectionCount)).round() + 1,
       1,
-      _percentPositionSectionCount,
+      sectionCount,
     );
     var endSection = startSection;
-    if (height != null && top.unit == height.unit) {
+    if (height != null) {
       endSection = _clampInt(
-        ((top.value + height.value) / (100 / _percentPositionSectionCount))
-            .round(),
+        ((top.value + height.value) / (100 / sectionCount)).round(),
         startSection,
-        _percentPositionSectionCount,
+        sectionCount,
       );
     }
 
     return _SectionRange(startSection: startSection, endSection: endSection);
+  }
+
+  static int _inferPercentageSectionCount(_CssLength top, _CssLength? height) {
+    final defaultScore = _percentageAlignmentScore(
+      top: top.value,
+      height: height?.value,
+      sectionCount: _percentPositionSectionCount,
+    );
+    final extendedScore = _percentageAlignmentScore(
+      top: top.value,
+      height: height?.value,
+      sectionCount: _extendedPercentPositionSectionCount,
+    );
+    return extendedScore + 1e-9 < defaultScore
+        ? _extendedPercentPositionSectionCount
+        : _percentPositionSectionCount;
+  }
+
+  static double _percentageAlignmentScore({
+    required double top,
+    required double? height,
+    required int sectionCount,
+  }) {
+    var score = _percentageLineAlignmentError(top, sectionCount);
+    if (height != null) {
+      score += _percentageLineAlignmentError(top + height, sectionCount);
+    }
+    return score;
+  }
+
+  static double _percentageLineAlignmentError(
+    double percentage,
+    int sectionCount,
+  ) {
+    final line = percentage * sectionCount / 100;
+    return (line - line.roundToDouble()).abs();
   }
 
   static _Placement? _parseGridArea(String value) {
@@ -512,18 +568,21 @@ class AcademicTimetableHtmlParser {
       return null;
     }
 
-    final rowStart = _parseGridLine(parts[0]);
-    final colStart = _parseGridLine(parts[1]);
-    final rowEnd = _parseGridLine(parts[2]);
-    if (rowStart == null || colStart == null || rowEnd == null) {
+    final gridRow = _parseGridLineRange(parts[0], parts[2]);
+    final gridColumn = _parseGridLineRange(parts[1], parts[3]);
+    if (gridRow == null || gridColumn == null) {
       return null;
     }
 
-    final startSection = _clampInt(rowStart, 1, _maxSectionCount);
+    final startSection = _clampInt(gridRow.start, 1, _maxSectionCount);
     return _Placement(
-      dayOfWeek: _clampInt(colStart, 1, _dayCount),
+      dayOfWeek: _clampInt(gridColumn.start, 1, _dayCount),
       startSection: startSection,
-      endSection: _clampInt(rowEnd - 1, startSection, _maxSectionCount),
+      endSection: _clampInt(
+        gridRow.endLine - 1,
+        startSection,
+        _maxSectionCount,
+      ),
     );
   }
 
@@ -805,10 +864,12 @@ class AcademicTimetableHtmlParser {
     if (start == null || end == null) {
       return null;
     }
-    return _SectionRange(
-      startSection: start <= end ? start : end,
-      endSection: start <= end ? end : start,
-    );
+    final startSection = start <= end ? start : end;
+    final endSection = start <= end ? end : start;
+    if (startSection < 1 || endSection > _maxSectionCount) {
+      return null;
+    }
+    return _SectionRange(startSection: startSection, endSection: endSection);
   }
 
   static String _stripSectionRange(String text) {

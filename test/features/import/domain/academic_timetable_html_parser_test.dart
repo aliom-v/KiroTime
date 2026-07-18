@@ -88,6 +88,10 @@ void main() {
         15,
       ]);
     });
+
+    test('rejects weeks outside the import boundary', () {
+      expect(AcademicTimetableHtmlParser.parseWeeks('25周'), isEmpty);
+    });
   });
 
   group('AcademicTimetableHtmlParser.parse', () {
@@ -1487,6 +1491,155 @@ void main() {
       expect(timetable.schedules.single.dayOfWeek, 2);
       expect(timetable.schedules.single.startSection, 3);
       expect(timetable.schedules.single.endSection, 4);
+    });
+
+    test('parses grid-area row span values', () {
+      const html = '''
+      <html>
+        <body>
+          <div class="kb-grid">
+            <div class="lesson"
+                 style="grid-area:3 / 2 / span 2 / span 1;">
+              <p>操作系统</p>
+              <p>南校区 3#504</p>
+              <p>吕林涛</p>
+              <p>1-5周</p>
+            </div>
+          </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, hasLength(1));
+      expect(timetable.schedules.single.dayOfWeek, 2);
+      expect(timetable.schedules.single.startSection, 3);
+      expect(timetable.schedules.single.endSection, 4);
+    });
+
+    test(
+      'infers sixteen-row percentage placement when alignment is stronger',
+      () {
+        const html = '''
+      <html>
+        <body>
+          <div class="mobile-timetable">
+            <div class="course-card"
+                 style="position:absolute;left:0%;top:75%;width:14.285%;height:6.25%;">
+              <p>晚间课程 13</p><p>南校区 报告厅</p><p>吕林涛</p><p>1-5周</p>
+            </div>
+            <div class="course-card"
+                 style="position:absolute;left:0%;top:81.25%;width:14.285%;height:6.25%;">
+              <p>晚间课程 14</p><p>南校区 报告厅</p><p>吕林涛</p><p>1-5周</p>
+            </div>
+            <div class="course-card"
+                 style="position:absolute;left:0%;top:87.5%;width:14.285%;height:6.25%;">
+              <p>晚间课程 15</p><p>南校区 报告厅</p><p>吕林涛</p><p>1-5周</p>
+            </div>
+            <div class="course-card"
+                 style="position:absolute;left:0%;top:93.75%;width:14.285%;height:6.25%;">
+              <p>晚间课程 16</p><p>南校区 报告厅</p><p>吕林涛</p><p>1-5周</p>
+            </div>
+          </div>
+        </body>
+      </html>
+      ''';
+
+        final timetable = AcademicTimetableHtmlParser.parse(html);
+        final startSections =
+            timetable.schedules
+                .map((schedule) => schedule.startSection)
+                .toList()
+              ..sort();
+
+        expect(startSections, <int>[13, 14, 15, 16]);
+        expect(
+          timetable.schedules.map((schedule) => schedule.endSection).toSet(),
+          <int>{13, 14, 15, 16},
+        );
+      },
+    );
+
+    test('keeps ambiguous percentage placement on twelve rows', () {
+      const html = '''
+      <html>
+        <body>
+          <div class="course-card"
+               style="position:absolute;left:0%;top:75%;width:14.285%;height:25%;">
+            <p>晚间课程</p>
+            <p>南校区 报告厅</p>
+            <p>吕林涛</p>
+            <p>1-5周</p>
+          </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, hasLength(1));
+      expect(timetable.schedules.single.startSection, 10);
+      expect(timetable.schedules.single.endSection, 12);
+    });
+
+    test('does not guess sections from pixel-only positioning', () {
+      const html = '''
+      <html>
+        <body>
+          <div class="course-card"
+               style="position:absolute;left:0px;top:120px;width:100px;height:40px;">
+            <p>操作系统</p>
+            <p>南校区 3#504</p>
+            <p>吕林涛</p>
+            <p>1-5周</p>
+          </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, isEmpty);
+    });
+
+    test('rejects out-of-range text sections', () {
+      const html = '''
+      <html>
+        <body>
+          <div class="lesson">
+            <p>操作系统</p>
+            <p>周一 第17-18节</p>
+            <p>南校区 3#504</p>
+            <p>吕林涛</p>
+            <p>1-5周</p>
+          </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, isEmpty);
+    });
+
+    test('does not treat a bare classroom number as week text', () {
+      const html = '''
+      <html>
+        <body>
+          <div class="lesson">
+            <p>离散数学</p>
+            <p>周一 第1-2节</p>
+            <p>吕林涛</p>
+            <p>12</p>
+          </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, isEmpty);
     });
 
     test('keeps explicit HTML schedules in sections thirteen to sixteen', () {
