@@ -1,7 +1,11 @@
 class CourseWeekText {
   CourseWeekText._();
 
-  static List<int> parse(String text) {
+  static List<int> parse(String text, {int? minWeek, int? maxWeek}) {
+    if (minWeek != null && maxWeek != null && minWeek > maxWeek) {
+      return <int>[];
+    }
+
     var compact = text
         .replaceAll(RegExp(r'\s+'), '')
         .replaceAll('（', '(')
@@ -43,6 +47,10 @@ class CourseWeekText {
         if (start == null || end == null) {
           continue;
         }
+        if (!_isWithinBounds(start, minWeek, maxWeek) ||
+            !_isWithinBounds(end, minWeek, maxWeek)) {
+          return <int>[];
+        }
         final lower = start <= end ? start : end;
         final upper = start <= end ? end : start;
         for (var week = lower; week <= upper; week++) {
@@ -51,6 +59,9 @@ class CourseWeekText {
       } else {
         final parsed = int.tryParse(token);
         if (parsed != null) {
+          if (!_isWithinBounds(parsed, minWeek, maxWeek)) {
+            return <int>[];
+          }
           tokenWeeks.add(parsed);
         }
       }
@@ -66,6 +77,11 @@ class CourseWeekText {
 
     final sorted = weeks.toList()..sort();
     return sorted;
+  }
+
+  static bool _isWithinBounds(int week, int? minWeek, int? maxWeek) {
+    return (minWeek == null || week >= minWeek) &&
+        (maxWeek == null || week <= maxWeek);
   }
 
   static String format(List<int> weeks) {

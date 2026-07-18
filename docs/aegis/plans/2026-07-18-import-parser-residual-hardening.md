@@ -54,6 +54,7 @@ Repair the remaining timetable import risks identified after the first parser ha
 
 ## Verification
 
+- `flutter test test/features/courses/domain/course_week_text_test.dart`
 - `flutter test test/features/import/domain/academic_timetable_html_parser_test.dart`
 - `flutter test test/features/import/domain/academic_timetable_json_parser_test.dart`
 - `flutter test test/features/import/domain/academic_timetable_api_probe_test.dart`
@@ -83,6 +84,8 @@ This would leave incorrect Grid spans, pixel misplacement, WebView blocking, and
 
 Files:
 
+- Create `test/features/courses/domain/course_week_text_test.dart`
+- Modify `lib/features/courses/domain/course_week_text.dart`
 - Modify `test/features/import/domain/academic_timetable_html_parser_test.dart`
 - Modify `lib/features/import/domain/academic_timetable_html_parser.dart`
 
@@ -109,21 +112,22 @@ Steps:
    - `rejects out-of-range text sections`
    - `does not treat a bare classroom number as week text`
 2. Run `flutter test test/features/import/domain/academic_timetable_html_parser_test.dart` and confirm the new assertions fail for the current parser behavior.
-3. Implement `_parseGridArea` through `_parseGridLineRange`, require `%` units in percentage placement, add a 12/16 alignment scorer with 12-row tie preference, validate text section bounds against `SemesterSettings.maxSectionCount`, and centralize recognized HTML week-line parsing with the 1-24 import boundary.
+3. Implement `_parseGridArea` through `_parseGridLineRange`, require `%` units in percentage placement, add a 12/16 alignment scorer with 12-row tie preference, validate text section bounds against `SemesterSettings.maxSectionCount`, add optional pre-expansion bounds to `CourseWeekText.parse`, and use those bounds from recognized HTML week-line parsing.
 4. Run the same test and confirm GREEN.
 5. Commit the parser slice.
 
 ### Repair Track
 
-- Root cause: Grid-area and separate Grid syntax have duplicate parsers; absolute layout ignores CSS units; generic week parsing is used as HTML line classification.
-- Canonical owner: HTML placement and line classification helpers.
-- Minimal repair: route both Grid syntaxes through one range parser, reject unsupported units, score only 12/16 percentage layouts, and distinguish marked/ranged week lines from arbitrary numbers.
+- Root cause: Grid-area and separate Grid syntax have duplicate parsers; absolute layout ignores CSS units; generic week parsing is used as HTML line classification and expands ranges before import bounds are known.
+- Canonical owner: HTML placement and line classification helpers plus `CourseWeekText` for bounded token expansion.
+- Minimal repair: route both Grid syntaxes through one range parser, reject unsupported units, score only 12/16 percentage layouts, distinguish marked/ranged week lines from arbitrary numbers, and let the week parser reject bounded endpoints before expansion.
 
 ### Retirement Track
 
 - Retire: `_parseGridArea` absolute-only end parsing.
 - Retire: pixel values interpreted with percentage arithmetic.
 - Retire: arbitrary bare integers acting as HTML week markers.
+- Retire: duplicated HTML-side token scanning that diverges from `CourseWeekText` grammar.
 - Retain: 12-row inference as the compatibility fallback for ambiguous percentage layouts.
 
 ## Task 2: JSON Import Bounds

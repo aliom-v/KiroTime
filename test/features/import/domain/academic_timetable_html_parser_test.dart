@@ -92,6 +92,17 @@ void main() {
     test('rejects weeks outside the import boundary', () {
       expect(AcademicTimetableHtmlParser.parseWeeks('25周'), isEmpty);
     });
+
+    test('rejects oversized week ranges outside the import boundary', () {
+      expect(AcademicTimetableHtmlParser.parseWeeks('1-1000周'), isEmpty);
+    });
+
+    test('ignores unrelated hour counts in marked week lines', () {
+      expect(
+        AcademicTimetableHtmlParser.parseWeeks('1-16周,共32学时'),
+        List<int>.generate(16, (index) => index + 1),
+      );
+    });
   });
 
   group('AcademicTimetableHtmlParser.parse', () {
@@ -1518,6 +1529,30 @@ void main() {
       expect(timetable.schedules.single.endSection, 4);
     });
 
+    test('preserves absolute grid-area end lines', () {
+      const html = '''
+      <html>
+        <body>
+          <div class="kb-grid">
+            <div class="lesson" style="grid-area:3 / 2 / 5 / 3;">
+              <p>操作系统</p>
+              <p>南校区 3#504</p>
+              <p>吕林涛</p>
+              <p>1-5周</p>
+            </div>
+          </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, hasLength(1));
+      expect(timetable.schedules.single.dayOfWeek, 2);
+      expect(timetable.schedules.single.startSection, 3);
+      expect(timetable.schedules.single.endSection, 4);
+    });
+
     test(
       'infers sixteen-row percentage placement when alignment is stronger',
       () {
@@ -1614,6 +1649,63 @@ void main() {
             <p>吕林涛</p>
             <p>1-5周</p>
           </div>
+        </body>
+      </html>
+      ''';
+
+      final timetable = AcademicTimetableHtmlParser.parse(html);
+
+      expect(timetable.schedules, isEmpty);
+    });
+
+    test(
+      'rejects out-of-range text sections before percentage placement fallback',
+      () {
+        const html = '''
+      <html>
+        <body>
+          <div class="course-card"
+               style="position:absolute;left:0%;top:0%;width:14.285%;height:16.666%;">
+            <p>操作系统</p>
+            <p>周一 第17-18节</p>
+            <p>南校区 3#504</p>
+            <p>吕林涛</p>
+            <p>1-5周</p>
+          </div>
+        </body>
+      </html>
+      ''';
+
+        final timetable = AcademicTimetableHtmlParser.parse(html);
+
+        expect(timetable.schedules, isEmpty);
+      },
+    );
+
+    test('rejects out-of-range text sections in plain timetable cells', () {
+      const html = '''
+      <html>
+        <body>
+          <table>
+            <tr>
+              <th>节次</th>
+              <th>周一</th>
+              <th>周二</th>
+              <th>周三</th>
+            </tr>
+            <tr>
+              <td>1</td>
+              <td>
+                操作系统<br>
+                周一 第17-18节<br>
+                南校区 3#504<br>
+                吕林涛<br>
+                1-5周
+              </td>
+              <td></td>
+              <td></td>
+            </tr>
+          </table>
         </body>
       </html>
       ''';

@@ -29,6 +29,9 @@ class AcademicTimetableHtmlParser {
   static const int _maxWeek = AcademicCalendar.maxWeek;
   static const int _percentPositionSectionCount = 12;
   static const int _extendedPercentPositionSectionCount = 16;
+  static final RegExp _sectionRangePattern = RegExp(
+    r'(?:第\s*)?(\d+)\s*[-~－—至到]\s*(\d+)\s*节',
+  );
 
   static ImportedTimetable parse(String html) {
     final metas = <CourseMeta>[];
@@ -83,11 +86,7 @@ class AcademicTimetableHtmlParser {
       return const <int>[];
     }
 
-    final weeks = CourseWeekText.parse(weekText);
-    if (weeks.isEmpty || weeks.any((week) => week < 1 || week > _maxWeek)) {
-      return const <int>[];
-    }
-    return weeks;
+    return CourseWeekText.parse(weekText, minWeek: 1, maxWeek: _maxWeek);
   }
 
   static bool _looksLikeHtmlWeekLine(String text) {
@@ -340,6 +339,9 @@ class AcademicTimetableHtmlParser {
           block,
         ).map(_cleanLabeledValue).where((line) => line.isNotEmpty).toList();
         final placement = _placementWithTextSection(basePlacement, lines);
+        if (placement == null) {
+          continue;
+        }
         for (final parsed in _parseScheduleFromLines(lines, placement)) {
           yield parsed;
         }
@@ -351,6 +353,9 @@ class AcademicTimetableHtmlParser {
       cell,
     ).map(_cleanLabeledValue).where((line) => line.isNotEmpty).toList();
     final placement = _placementWithTextSection(basePlacement, lines);
+    if (placement == null) {
+      return;
+    }
     for (final parsed in _parseScheduleFromLines(lines, placement)) {
       yield parsed;
     }
@@ -363,10 +368,13 @@ class AcademicTimetableHtmlParser {
         .toList(growable: false);
   }
 
-  static _Placement _placementWithTextSection(
+  static _Placement? _placementWithTextSection(
     _Placement basePlacement,
     List<String> lines,
   ) {
+    if (lines.any(_hasInvalidSectionRange)) {
+      return null;
+    }
     final sectionRange = _parseWidestSectionRange(lines);
     if (sectionRange == null) {
       return basePlacement;
@@ -387,7 +395,12 @@ class AcademicTimetableHtmlParser {
       return explicit;
     }
 
-    final fromText = _parseTextPlacement(contentLines.join(' '));
+    final placementText = contentLines.join(' ');
+    if (_hasInvalidSectionRange(placementText)) {
+      return null;
+    }
+
+    final fromText = _parseTextPlacement(placementText);
     if (fromText != null) {
       return fromText;
     }
@@ -853,12 +866,23 @@ class AcademicTimetableHtmlParser {
   }
 
   static _SectionRange? _parseSectionRange(String text) {
-    final match = RegExp(
-      r'(?:第\s*)?(\d+)\s*[-~－—至到]\s*(\d+)\s*节',
-    ).firstMatch(text);
+    final match = _sectionRangePattern.firstMatch(text);
     if (match == null) {
       return null;
     }
+    return _parseSectionRangeMatch(match);
+  }
+
+  static bool _hasInvalidSectionRange(String text) {
+    for (final match in _sectionRangePattern.allMatches(text)) {
+      if (_parseSectionRangeMatch(match) == null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static _SectionRange? _parseSectionRangeMatch(RegExpMatch match) {
     final start = int.tryParse(match.group(1)!);
     final end = int.tryParse(match.group(2)!);
     if (start == null || end == null) {
