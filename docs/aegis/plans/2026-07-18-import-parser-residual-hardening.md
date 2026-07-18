@@ -151,7 +151,7 @@ Steps:
 
 1. Add a failing test `skips schedules outside supported section and week bounds` containing one valid item, invalid `0-2`, invalid `15-17`, week `0`, and week `25` items.
 2. Run `flutter test test/features/import/domain/academic_timetable_json_parser_test.dart` and confirm invalid items are currently returned.
-3. Validate `_SectionRange` against 1-16 and filter/reject week lists against 1-24 before creating `_JsonSchedule`.
+3. Validate `_SectionRange` against 1-16 and call the canonical bounded `CourseWeekText.parse` API with 1-24 before creating `_JsonSchedule`.
 4. Run the JSON parser test and confirm GREEN.
 5. Commit the JSON validation slice.
 

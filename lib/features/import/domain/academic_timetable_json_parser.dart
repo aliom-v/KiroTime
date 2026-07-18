@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 import '../../../features/courses/data/course_meta.dart';
 import '../../../features/courses/data/course_schedule.dart';
 import '../../courses/domain/course_week_text.dart';
+import '../../timetable/domain/academic_calendar.dart';
+import '../../timetable/domain/semester_settings.dart';
 import 'academic_timetable_html_parser.dart';
 
 class AcademicTimetableJsonParser {
@@ -77,7 +79,11 @@ class AcademicTimetableJsonParser {
     final name = _cleanCourseName(_string(item['kcmc']));
     final teacher = _string(item['xm']);
     final teachingClass = _string(item['jxbmc']);
-    final weeks = CourseWeekText.parse(_string(item['zcd']));
+    final weeks = CourseWeekText.parse(
+      _string(item['zcd']),
+      minWeek: 1,
+      maxWeek: AcademicCalendar.maxWeek,
+    );
     final dayOfWeek = _parseInt(item['xqj']);
     final sectionRange = _parseSectionRange(_string(item['jcs']));
     if (name.isEmpty ||
@@ -116,9 +122,14 @@ class AcademicTimetableJsonParser {
       final start = int.tryParse(rangeMatch.group(1)!);
       final end = int.tryParse(rangeMatch.group(2)!);
       if (start != null && end != null) {
+        final startSection = start <= end ? start : end;
+        final endSection = start <= end ? end : start;
+        if (startSection < 1 || endSection > SemesterSettings.maxSectionCount) {
+          return null;
+        }
         return _SectionRange(
-          startSection: start <= end ? start : end,
-          endSection: start <= end ? end : start,
+          startSection: startSection,
+          endSection: endSection,
         );
       }
     }
@@ -128,7 +139,9 @@ class AcademicTimetableJsonParser {
       return null;
     }
     final section = int.tryParse(singleMatch.group(0)!);
-    if (section == null) {
+    if (section == null ||
+        section < 1 ||
+        section > SemesterSettings.maxSectionCount) {
       return null;
     }
     return _SectionRange(startSection: section, endSection: section);

@@ -167,5 +167,69 @@ void main() {
       expect(timetable.schedules.single.endSection, 8);
       expect(timetable.schedules.single.weeks, <int>[15]);
     });
+
+    test('skips schedules outside supported section and week bounds', () {
+      const source = '''
+      {
+        "kbList": [
+          {
+            "kcmc": "边界有效课程",
+            "jxbmc": "边界有效课程-0001",
+            "xqmc": "示例校区",
+            "cdmc": "教学楼101",
+            "xm": "教师A",
+            "zcd": "24周",
+            "xqj": "7",
+            "jcs": "15-16"
+          },
+          {
+            "kcmc": "无效起始节次课程",
+            "zcd": "1周",
+            "xqj": "1",
+            "jcs": "0-2"
+          },
+          {
+            "kcmc": "无效结束节次课程",
+            "zcd": "1周",
+            "xqj": "1",
+            "jcs": "15-17"
+          },
+          {
+            "kcmc": "无效第零周课程",
+            "zcd": "0周",
+            "xqj": "1",
+            "jcs": "1-2"
+          },
+          {
+            "kcmc": "无效超界周课程",
+            "zcd": "25周",
+            "xqj": "1",
+            "jcs": "1-2"
+          },
+          {
+            "kcmc": "无效超大周范围课程",
+            "zcd": "1-1000周",
+            "xqj": "1",
+            "jcs": "1-2"
+          }
+        ],
+        "sjkList": []
+      }
+      ''';
+
+      final timetable = AcademicTimetableJsonParser.parse(source);
+
+      expect(timetable.metas, hasLength(1));
+      expect(timetable.schedules, hasLength(1));
+
+      final meta = timetable.metas.single;
+      final schedule = timetable.schedules.single;
+      expect(meta.name, '边界有效课程');
+      expect(schedule.courseMetaId, meta.id);
+      expect(schedule.dayOfWeek, 7);
+      expect(schedule.startSection, 15);
+      expect(schedule.endSection, 16);
+      expect(schedule.weeks, <int>[24]);
+    });
   });
 }
