@@ -175,7 +175,7 @@ void main() {
       expect(selected, same(fuller));
     });
 
-    test('prefers a non-suspicious candidate over a crowded result', () {
+    test('prefers a fuller crowded candidate over a smaller safe result', () {
       final crowded = _candidate(
         path: '/crowded',
         scheduleCount: 5,
@@ -187,8 +187,26 @@ void main() {
         <TimetableProbeCandidate>[crowded, safe],
       );
 
-      expect(selected, same(safe));
+      expect(selected, same(crowded));
     });
+
+    test(
+      'uses suspicious status only after schedule and course counts tie',
+      () {
+        final crowded = _candidate(
+          path: '/crowded',
+          scheduleCount: 4,
+          crowded: true,
+        );
+        final safe = _candidate(path: '/safe', scheduleCount: 4);
+
+        final selected = AcademicTimetableApiProbe.selectBestCandidate(
+          <TimetableProbeCandidate>[crowded, safe],
+        );
+
+        expect(selected, same(safe));
+      },
+    );
 
     test('uses course count after schedule count', () {
       final sharedMeta = _candidate(

@@ -66,15 +66,15 @@ class AcademicTimetableApiProbe {
     TimetableProbeCandidate candidate,
     TimetableProbeCandidate currentBest,
   ) {
-    if (candidate.summary.isSuspicious != currentBest.summary.isSuspicious) {
-      return !candidate.summary.isSuspicious;
-    }
     if (candidate.summary.scheduleCount != currentBest.summary.scheduleCount) {
       return candidate.summary.scheduleCount >
           currentBest.summary.scheduleCount;
     }
     if (candidate.summary.courseCount != currentBest.summary.courseCount) {
       return candidate.summary.courseCount > currentBest.summary.courseCount;
+    }
+    if (candidate.summary.isSuspicious != currentBest.summary.isSuspicious) {
+      return !candidate.summary.isSuspicious;
     }
     return false;
   }
