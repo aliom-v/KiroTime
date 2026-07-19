@@ -14,7 +14,7 @@
 - Completed: Task 5 persistence sequencing and lifecycle-independent provider TDD. Core replacement precedes metadata/path persistence; optional state commits before memory updates; course and metadata writes share one captured semester ID; missing targets fail atomically; 8 provider/sequence and 16 database tests passed.
 - Completed: full import regression, 79 tests passed.
 - Completed: static analysis and `git diff --check` passed.
-- Completed: full-suite isolation; 162 tests passed and one pre-existing date-dependent timetable widget assertion failed.
+- Completed: stabilized the pre-existing date-dependent timetable widget assertion; final full suite passed 163 tests.
 - Completed: evidence and reflection recorded.
 - Remaining integration action: fast-forward this branch into `main` and push `origin/main`.
 

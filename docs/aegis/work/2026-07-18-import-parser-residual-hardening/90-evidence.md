@@ -63,10 +63,9 @@ git diff --check
 flutter test --no-pub
 ```
 
-- Result: 162 tests passed, 1 unrelated widget test failed.
-- Failure: `semester settings update visible term and current week` expected `第16周` in `test/widget/timetable_page_test.dart:950`.
-- Isolation: this is the previously recorded date-dependent assertion. With the current date later in the semester, production clamps to a later week; this task did not change timetable week UI/provider logic.
-- Decision: retain as pre-existing test debt and do not mix its repair into import hardening.
+- Exit code: 0
+- Result: 163 tests passed.
+- The pre-existing `第16周` assertion was stabilized to derive the expected week from the edited semester and `DateTime.now()`, matching production behavior without changing runtime logic.
 
 ## Manual Verification Not Performed
 

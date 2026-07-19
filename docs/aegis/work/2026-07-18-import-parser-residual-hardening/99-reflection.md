@@ -45,7 +45,7 @@ The remaining import defects were repaired without adding WebDAV, backend crawli
 - No page-level platform test simulates WebView channel registration failure or automatic navigation during HTML extraction; pure client tests and page-generation guards cover the underlying state transitions.
 - No authenticated Android school session was available for cookie/channel verification.
 - Candidate completeness remains generic and count-based because the project intentionally has no school-specific expected-course contract.
-- One unrelated date-dependent timetable widget assertion remains failing in the full suite.
+- The previously date-dependent timetable widget assertion now derives its expectation from the same semester calculation as production; the full suite is green.
 
 ## Confidence
 

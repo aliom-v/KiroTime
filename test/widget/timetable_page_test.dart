@@ -946,8 +946,11 @@ void main() {
     await tester.tap(find.text('保存设置'));
     await tester.pumpAndSettle();
 
+    final expectedWeek = initialSemester
+        .copyWith(schoolYearStart: 2026, totalWeeks: 18, sectionCount: 12)
+        .weekOf(DateTime.now());
     expect(find.text('2026-2027第二学期'), findsWidgets);
-    expect(find.text('第16周'), findsOneWidget);
+    expect(find.text('第$expectedWeek周'), findsOneWidget);
     expect(find.text('11'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
   });
