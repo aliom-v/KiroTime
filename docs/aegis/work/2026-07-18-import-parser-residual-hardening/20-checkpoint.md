@@ -8,8 +8,8 @@
 - Completed: authority and canonical owner readback.
 - Completed: residual hardening plan written and self-reviewed with no placeholders or scope drift.
 - Completed: Task 1 HTML placement/week-line TDD and two-stage review. Final related evidence: 46 tests passed; no Critical/Important review findings remain.
-- Active slice: begin Task 2 JSON import bounds TDD.
-- Pending: JSON bounds TDD.
+- Completed: Task 2 JSON bounds TDD and two-stage review. Final target evidence: 5 tests passed; no Critical/Important review findings remain.
+- Active slice: begin Task 3 candidate ranking and preview override TDD.
 - Pending: candidate ranking and preview override TDD.
 - Pending: asynchronous WebView probe TDD.
 - Pending: persistence sequencing TDD.
@@ -21,7 +21,7 @@
 - Branch: `fix/import-parser-residuals`
 - Base: `70ad6206212bf71dbbed4e21318be5d8fa32efb0`
 - Plan: `docs/aegis/plans/2026-07-18-import-parser-residual-hardening.md`
-- Next: commit Task 1 review fixes, then execute Task 2 with failing JSON boundary tests.
+- Next: commit Task 2 review fixes, then execute Task 3 with failing ranking and preview widget tests.
 
 ## DriftCheckDraft
 
@@ -29,4 +29,5 @@
 - Compatibility: local-only import, overlap validity, preview confirmation, and schema stability preserved.
 - New owners: only bounded testable coordinators for WebView request lifecycle, preview widget, and persistence sequencing.
 - Retirement: Task 1 retired duplicate Grid-area semantics, pixel-as-percentage arithmetic, bare-number HTML week classification, invalid-section fallback, and duplicated HTML-side week-bound scanning.
+- Retirement: Task 2 retired partial JSON section-range matching and off-grid JSON schedules entering import results.
 - Decision: continue.

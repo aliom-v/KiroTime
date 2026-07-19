@@ -117,7 +117,9 @@ class AcademicTimetableJsonParser {
         .replaceAll('至', '-')
         .replaceAll('到', '-')
         .replaceAll(RegExp(r'\s+'), '');
-    final rangeMatch = RegExp(r'(\d{1,2})-(\d{1,2})').firstMatch(normalized);
+    final rangeMatch = RegExp(
+      r'^第?(\d{1,2})-(\d{1,2})节?$',
+    ).firstMatch(normalized);
     if (rangeMatch != null) {
       final start = int.tryParse(rangeMatch.group(1)!);
       final end = int.tryParse(rangeMatch.group(2)!);

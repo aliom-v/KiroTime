@@ -195,6 +195,24 @@ void main() {
             "jcs": "15-17"
           },
           {
+            "kcmc": "无效三位数节次课程",
+            "zcd": "1周",
+            "xqj": "1",
+            "jcs": "101-102"
+          },
+          {
+            "kcmc": "无效前缀匹配节次课程",
+            "zcd": "1周",
+            "xqj": "1",
+            "jcs": "116-117"
+          },
+          {
+            "kcmc": "无效多段节次课程",
+            "zcd": "1周",
+            "xqj": "1",
+            "jcs": "1-2-3"
+          },
+          {
             "kcmc": "无效第零周课程",
             "zcd": "0周",
             "xqj": "1",
@@ -230,6 +248,53 @@ void main() {
       expect(schedule.startSection, 15);
       expect(schedule.endSection, 16);
       expect(schedule.weeks, <int>[24]);
+    });
+
+    test('accepts only supported single-section bounds', () {
+      const source = '''
+      {
+        "kbList": [
+          {
+            "kcmc": "有效第一节课程",
+            "zcd": "1周",
+            "xqj": "1",
+            "jcs": "1"
+          },
+          {
+            "kcmc": "有效第十六节课程",
+            "zcd": "24周",
+            "xqj": "7",
+            "jcs": "16"
+          },
+          {
+            "kcmc": "无效第零节课程",
+            "zcd": "1周",
+            "xqj": "1",
+            "jcs": "0"
+          },
+          {
+            "kcmc": "无效第十七节课程",
+            "zcd": "1周",
+            "xqj": "1",
+            "jcs": "17"
+          }
+        ],
+        "sjkList": []
+      }
+      ''';
+
+      final timetable = AcademicTimetableJsonParser.parse(source);
+
+      expect(timetable.metas, hasLength(2));
+      expect(timetable.metas.map((meta) => meta.name).toList(), <String>[
+        '有效第一节课程',
+        '有效第十六节课程',
+      ]);
+      expect(timetable.schedules, hasLength(2));
+      expect(timetable.schedules.first.startSection, 1);
+      expect(timetable.schedules.first.endSection, 1);
+      expect(timetable.schedules.last.startSection, 16);
+      expect(timetable.schedules.last.endSection, 16);
     });
   });
 }
