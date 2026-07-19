@@ -110,6 +110,27 @@ class KiroTimeDatabase {
     });
   }
 
+  static Future<SemesterSettings> updateSemesterStart(
+    Isar isar, {
+    required String semesterId,
+    required DateTime semesterStart,
+  }) async {
+    late SemesterSettings updated;
+    await isar.writeTxn(() async {
+      final record = await isar.semesterRecords
+          .where()
+          .idEqualTo(semesterId)
+          .findFirst();
+      if (record == null) {
+        throw StateError('Missing semester $semesterId');
+      }
+      record.semesterStart = semesterStart;
+      await isar.semesterRecords.put(record);
+      updated = record.toSettings();
+    });
+    return updated;
+  }
+
   static Future<String?> readSelectedSemesterId(Isar isar) async {
     final record = await isar.appSettingRecords
         .where()
@@ -238,6 +259,13 @@ class KiroTimeDatabase {
     required List<CourseSchedule> schedules,
   }) async {
     await isar.writeTxn(() async {
+      final semesterExists = await isar.semesterRecords
+          .where()
+          .idEqualTo(semesterId)
+          .findFirst();
+      if (semesterExists == null) {
+        throw StateError('Missing semester $semesterId');
+      }
       final oldSchedules = await isar.courseSchedules
           .where()
           .semesterIdEqualTo(semesterId)

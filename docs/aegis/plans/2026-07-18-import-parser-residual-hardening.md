@@ -19,7 +19,7 @@ Repair the remaining timetable import risks identified after the first parser ha
 - `academic_timetable_api_probe.dart` remains the canonical owner of pure candidate comparison and crowded-slot summaries.
 - A small `semester_api_probe_client.dart` presentation helper owns asynchronous JavaScript request lifecycle, request IDs, channel message decoding, and timeouts without depending on `WebViewController` directly.
 - A small `import_preview_dialog.dart` widget owns preview rendering and the explicit suspicious-result override.
-- A small `import_persistence_sequence.dart` application helper owns the order of core replacement followed by optional metadata/path persistence.
+- A small `import_persistence_sequence.dart` helper owns core-versus-optional ordering, while `import_persistence_provider.dart` composes database replacement, optional state persistence, and cache refresh outside the page lifecycle.
 - `course_import_page.dart` remains the composition owner for WebView, providers, diagnostics, and user-triggered import flow.
 
 ## Tech Stack
@@ -250,8 +250,14 @@ Steps:
 Files:
 
 - Create `lib/features/import/application/import_persistence_sequence.dart`
+- Create `lib/features/import/application/import_persistence_provider.dart`
 - Create `test/features/import/application/import_persistence_sequence_test.dart`
+- Create `test/features/import/application/import_persistence_provider_test.dart`
 - Modify `lib/features/import/presentation/course_import_page.dart`
+- Modify `lib/core/database/isar_database.dart`
+- Modify `lib/features/settings/application/settings_providers.dart`
+- Modify `lib/features/timetable/application/timetable_providers.dart`
+- Modify `test/core/database/kiro_time_database_test.dart`
 - Update `docs/aegis/work/2026-07-18-import-parser-residual-hardening/20-checkpoint.md`
 - Create `docs/aegis/work/2026-07-18-import-parser-residual-hardening/90-evidence.md`
 - Create `docs/aegis/work/2026-07-18-import-parser-residual-hardening/99-reflection.md`
@@ -267,12 +273,15 @@ Impact/Compatibility:
 - A core replacement failure propagates and prevents optional writes.
 - Metadata/path failures become warnings after successful core replacement.
 - Provider invalidation and success messaging happen only after the core replacement succeeds.
+- Optional providers update in-memory state only after their database writes succeed.
+- Persistence and provider invalidation continue safely if the import page is closed during the operation.
+- Core replacement rejects a target semester deleted before its transaction, and imported semester-start updates modify only the still-existing target record.
 
 Steps:
 
 1. Add failing tests proving the sequence is `replace -> metadata -> path`, optional steps do not run when replacement fails, and optional failures are returned as warnings instead of throwing.
 2. Run `flutter test test/features/import/application/import_persistence_sequence_test.dart` and confirm RED.
-3. Implement the sequence helper and wire `_persistPreparedImport` through callback closures. Set last-import UI state only after core success and include warnings in the success message.
+3. Implement the sequence helper and a lifecycle-independent provider composition. Wire `_persistPreparedImport` through that provider, bind core and metadata writes to one captured semester ID, validate target existence in the replacement transaction, update only the target semester-start field, persist optional state before updating memory, set page UI state only while mounted, and include warnings in the success message.
 4. Run all task-specific tests, `flutter test test/features/import`, `flutter analyze --no-pub`, `flutter test --no-pub`, and `git diff --check`.
 5. Record exact RED/GREEN/full-suite evidence, architecture review, repair/retirement closure, residual risk, and commit the final slice.
 

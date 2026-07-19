@@ -23,3 +23,6 @@
 - 2026-07-18: `work/2026-07-18-import-parser-hardening/99-reflection.md` - Repair/retirement closure, architecture review, confidence, and residual risk.
 - 2026-07-18: `plans/2026-07-18-import-parser-residual-hardening.md` - Grid-area spans, absolute-position inference, import validation, probe UX, asynchronous WebView requests, and persistence sequencing.
 - 2026-07-18: `work/2026-07-18-import-parser-residual-hardening/10-intent.md` - Residual import hardening intent, baseline read set, impact statement, and non-goals.
+- 2026-07-18: `work/2026-07-18-import-parser-residual-hardening/20-checkpoint.md` - Completed task slices, drift decisions, and integration handoff.
+- 2026-07-18: `work/2026-07-18-import-parser-residual-hardening/90-evidence.md` - RED/GREEN results, import regression evidence, full-suite isolation, and manual verification boundary.
+- 2026-07-18: `work/2026-07-18-import-parser-residual-hardening/99-reflection.md` - Architecture review, repair/retirement closure, review findings, and residual risk.

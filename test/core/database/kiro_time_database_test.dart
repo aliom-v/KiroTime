@@ -102,6 +102,41 @@ void main() {
       );
     });
 
+    test(
+      'updates only semester start and rejects a missing semester',
+      () async {
+        final semester = SemesterSettings(
+          id: '2026-1',
+          schoolYearStart: 2026,
+          semester: 1,
+          semesterStart: DateTime(2026, 8, 17),
+          totalWeeks: 20,
+          sectionCount: 12,
+          displayName: '大三上',
+        );
+        await KiroTimeDatabase.upsertSemester(isar, semester);
+
+        final updated = await KiroTimeDatabase.updateSemesterStart(
+          isar,
+          semesterId: semester.id,
+          semesterStart: DateTime(2026, 8, 31),
+        );
+
+        expect(updated.semesterStart, DateTime(2026, 8, 31));
+        expect(updated.displayName, '大三上');
+        expect(updated.sectionCount, 12);
+        expect(updated.totalWeeks, 20);
+        await expectLater(
+          KiroTimeDatabase.updateSemesterStart(
+            isar,
+            semesterId: 'missing',
+            semesterStart: DateTime(2026, 9, 7),
+          ),
+          throwsStateError,
+        );
+      },
+    );
+
     test('round-trips custom display name', () async {
       final semester = SemesterSettings(
         id: '2026-1',
@@ -250,9 +285,52 @@ void main() {
   });
 
   group('KiroTimeDatabase semester course scope', () {
+    test('rejects replacement when the target semester is missing', () async {
+      await expectLater(
+        KiroTimeDatabase.replaceWithImportedData(
+          isar,
+          semesterId: 'missing',
+          metas: <CourseMeta>[
+            CourseMeta.create(id: 'meta-a', name: 'A', teacher: 'Teacher A'),
+          ],
+          schedules: <CourseSchedule>[
+            CourseSchedule.create(
+              id: 'schedule-a',
+              courseMetaId: 'meta-a',
+              classroom: 'Room A',
+              dayOfWeek: 1,
+              startSection: 1,
+              endSection: 2,
+              weeks: <int>[1],
+            ),
+          ],
+        ),
+        throwsStateError,
+      );
+
+      expect(await isar.courseMetas.count(), 0);
+      expect(await isar.courseSchedules.count(), 0);
+    });
+
     test(
       'replacing one semester leaves other semester schedules intact',
       () async {
+        final first = SemesterSettings(
+          id: '2025-2',
+          schoolYearStart: 2025,
+          semester: 2,
+          semesterStart: DateTime(2026, 3, 2),
+          totalWeeks: 20,
+        );
+        final second = SemesterSettings(
+          id: '2026-1',
+          schoolYearStart: 2026,
+          semester: 1,
+          semesterStart: DateTime(2026, 8, 31),
+          totalWeeks: 20,
+        );
+        await KiroTimeDatabase.upsertSemester(isar, first);
+        await KiroTimeDatabase.upsertSemester(isar, second);
         await KiroTimeDatabase.replaceWithImportedData(
           isar,
           semesterId: '2025-2',

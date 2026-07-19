@@ -65,12 +65,12 @@ typedef SaveImportPreferences =
 
 final saveImportPreferencesProvider = Provider<SaveImportPreferences>((ref) {
   return (ImportPreferences preferences) async {
-    ref.read(importPreferencesProvider.notifier).state = preferences;
     final isar = await KiroTimeDatabase.open();
     await KiroTimeDatabase.saveAppSetting(
       isar,
       key: importPreferencesKey,
       value: jsonEncode(preferences.toJson()),
     );
+    ref.read(importPreferencesProvider.notifier).state = preferences;
   };
 });

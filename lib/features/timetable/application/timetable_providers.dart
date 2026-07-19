@@ -74,6 +74,49 @@ final selectSemesterProvider = Provider<SelectSemester>((ref) {
   };
 });
 
+typedef UpdateImportedSemesterStart =
+    Future<void> Function({
+      required String semesterId,
+      required DateTime semesterStart,
+    });
+
+final updateImportedSemesterStartProvider =
+    Provider<UpdateImportedSemesterStart>((ref) {
+      return ({
+        required String semesterId,
+        required DateTime semesterStart,
+      }) async {
+        final isar = await KiroTimeDatabase.open();
+        final persisted = await KiroTimeDatabase.updateSemesterStart(
+          isar,
+          semesterId: semesterId,
+          semesterStart: semesterStart,
+        );
+        final semesters = ref.read(semesterListProvider);
+        SemesterSettings? mergedTarget;
+        final updatedSemesters = <SemesterSettings>[
+          for (final semester in semesters)
+            if (semester.id == semesterId)
+              mergedTarget = semester.copyWith(
+                semesterStart: persisted.semesterStart,
+              )
+            else
+              semester,
+        ];
+        if (mergedTarget == null) {
+          return;
+        }
+        ref.read(semesterListProvider.notifier).state =
+            sortSemestersByAcademicTime(updatedSemesters);
+        if (ref.read(selectedSemesterIdProvider) == semesterId) {
+          ref.read(currentWeekProvider.notifier).state = mergedTarget.weekOf(
+            DateTime.now(),
+          );
+        }
+        invalidateTimetableData(ref);
+      };
+    });
+
 final updateSelectedSemesterProvider =
     Provider<Future<void> Function(SemesterSettings)>((ref) {
       return (SemesterSettings settings) async {
@@ -112,6 +155,44 @@ final applyImportedSemesterMetadataProvider =
         }
         await ref.read(updateSelectedSemesterProvider)(
           current.copyWith(semesterStart: normalizedStart),
+        );
+      };
+    });
+
+typedef ApplyImportedSemesterMetadataToSemester =
+    Future<void> Function({
+      required String semesterId,
+      DateTime? semesterStart,
+    });
+
+final applyImportedSemesterMetadataToSemesterProvider =
+    Provider<ApplyImportedSemesterMetadataToSemester>((ref) {
+      return ({required String semesterId, DateTime? semesterStart}) async {
+        if (semesterStart == null) {
+          return;
+        }
+        final semesters = ref.read(semesterListProvider);
+        SemesterSettings? target;
+        for (final semester in semesters) {
+          if (semester.id == semesterId) {
+            target = semester;
+            break;
+          }
+        }
+        if (target == null) {
+          throw StateError('目标学期不存在：$semesterId');
+        }
+        final normalizedStart = DateTime(
+          semesterStart.year,
+          semesterStart.month,
+          semesterStart.day,
+        );
+        if (target.semesterStart == normalizedStart) {
+          return;
+        }
+        await ref.read(updateImportedSemesterStartProvider)(
+          semesterId: semesterId,
+          semesterStart: normalizedStart,
         );
       };
     });

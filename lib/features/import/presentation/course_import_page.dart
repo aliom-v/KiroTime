@@ -6,14 +6,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import '../../../core/database/isar_database.dart';
 import '../../settings/application/settings_providers.dart';
 import '../../timetable/application/timetable_providers.dart';
+import '../application/import_persistence_provider.dart';
 import '../domain/academic_timetable_api_probe.dart';
 import '../domain/academic_timetable_html_parser.dart';
 import '../domain/academic_timetable_json_parser.dart';
 import '../domain/webview_html_codec.dart';
 import 'import_preview_dialog.dart';
+import 'semester_api_probe_client.dart';
 
 class CourseImportPage extends ConsumerStatefulWidget {
   const CourseImportPage({super.key});
@@ -24,12 +25,16 @@ class CourseImportPage extends ConsumerStatefulWidget {
 
 class _CourseImportPageState extends ConsumerState<CourseImportPage> {
   late final WebViewController _controller;
+  late final SemesterApiProbeClient _semesterApiProbeClient;
+  late final Future<void> _semesterApiChannelReady;
   final TextEditingController _urlController = TextEditingController();
   bool _isLoading = false;
   String _currentUrl = '';
   String? _lastImportHtml;
   String _lastImportSource = '未导入';
   String? _lastSemesterApiError;
+  String? _semesterApiChannelError;
+  int _pageGeneration = 0;
   int? _lastImportedScheduleCount;
   List<String> _lastProbeCandidates = const <String>[];
   Map<String, String> _lastProbeErrors = const <String, String>{};
@@ -39,11 +44,29 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
+    _controller = WebViewController();
+    _semesterApiProbeClient = SemesterApiProbeClient(
+      runJavaScript: _controller.runJavaScript,
+    );
+    _semesterApiChannelReady = _configureSemesterApiChannel();
+    unawaited(_applyImportPreferences());
+  }
+
+  @override
+  void dispose() {
+    _semesterApiProbeClient.dispose();
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _configureSemesterApiChannel() async {
+    try {
+      await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await _controller.setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) {
+            _pageGeneration++;
+            _semesterApiProbeClient.cancelPending(error: '页面已变化');
             if (!mounted) {
               return;
             }
@@ -61,13 +84,15 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
           },
         ),
       );
-    unawaited(_applyImportPreferences());
-  }
-
-  @override
-  void dispose() {
-    _urlController.dispose();
-    super.dispose();
+      await _controller.addJavaScriptChannel(
+        SemesterApiProbeClient.channelName,
+        onMessageReceived: (message) {
+          _semesterApiProbeClient.handleJavaScriptMessage(message.message);
+        },
+      );
+    } catch (error) {
+      _semesterApiChannelError = 'WebView 探测通道初始化失败：$error';
+    }
   }
 
   Future<void> _loadUrl() async {
@@ -78,6 +103,12 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
       return;
     }
 
+    await _semesterApiChannelReady;
+    final channelError = _semesterApiChannelError;
+    if (channelError != null) {
+      _showMessage(channelError);
+      return;
+    }
     await _controller.loadRequest(uri);
   }
 
@@ -128,7 +159,9 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     });
 
     try {
+      final pageGeneration = _pageGeneration;
       final html = await _requireCurrentPageHtml();
+      _ensurePageGeneration(pageGeneration);
       final selectedSemester = ref.read(semesterSettingsProvider);
       final candidates = _buildProbeCandidates(html);
       if (candidates.isEmpty) {
@@ -140,6 +173,7 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
         candidates,
         schoolYearStart: selectedSemester.schoolYearStart,
         semester: selectedSemester.semester,
+        pageGeneration: pageGeneration,
       );
       if (result == null) {
         _showMessage('接口探测失败，请复制诊断摘要');
@@ -166,7 +200,9 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     _lastSemesterApiError = null;
     _lastProbeErrors = const <String, String>{};
 
+    final pageGeneration = _pageGeneration;
     final html = await _readCurrentPageHtml();
+    _ensurePageGeneration(pageGeneration);
     if (html != null && html.isNotEmpty) {
       _lastImportHtml = html;
     }
@@ -176,6 +212,7 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
       candidates,
       schoolYearStart: selectedSemester.schoolYearStart,
       semester: selectedSemester.semester,
+      pageGeneration: pageGeneration,
     );
     if (apiResult != null) {
       return apiResult;
@@ -213,19 +250,35 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     List<String> candidates, {
     int? schoolYearStart,
     int? semester,
+    required int pageGeneration,
   }) async {
     final errors = <String, String>{};
     final successfulCandidates = <TimetableProbeCandidate>[];
     final payloadsByPath = <String, String>{};
+    void ensurePageUnchanged([String? path]) {
+      if (pageGeneration == _pageGeneration) {
+        return;
+      }
+      const message = '探测期间页面已变化，请在页面稳定后重试';
+      errors[path ?? 'page'] = message;
+      _lastProbeErrors = Map<String, String>.unmodifiable(errors);
+      _lastSemesterApiError = message;
+      throw const _PageChangedDuringImport(message);
+    }
+
+    ensurePageUnchanged();
     for (final path in candidates) {
+      ensurePageUnchanged(path);
       try {
-        final payload = await _readSemesterTimetableJsonFromPath(
+        final readResult = await _readSemesterTimetableJsonFromPath(
           path,
           schoolYearStart: schoolYearStart,
           semester: semester,
         );
+        ensurePageUnchanged(path);
+        final payload = readResult.payload;
         if (payload == null) {
-          errors[path] = _lastSemesterApiError ?? '未返回课表 JSON';
+          errors[path] = readResult.error ?? '未返回课表 JSON';
           continue;
         }
         final timetable = AcademicTimetableJsonParser.parse(payload);
@@ -238,10 +291,14 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
         );
         payloadsByPath[path] = payload;
       } catch (error) {
+        if (error is _PageChangedDuringImport) {
+          rethrow;
+        }
         errors[path] = error.toString();
       }
     }
 
+    ensurePageUnchanged();
     final selected = AcademicTimetableApiProbe.selectBestCandidate(
       successfulCandidates,
     );
@@ -269,53 +326,33 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     );
   }
 
-  Future<void> _saveDetectedApiPath(String path) async {
-    final current = ref.read(importPreferencesProvider);
-    if (current.semesterApiPath == path) {
-      return;
+  void _ensurePageGeneration(int expectedGeneration) {
+    if (expectedGeneration != _pageGeneration) {
+      throw const _PageChangedDuringImport('页面已变化，请在页面稳定后重试');
     }
-    await ref.read(saveImportPreferencesProvider)(
-      current.copyWith(semesterApiPath: path),
-    );
   }
 
   Future<void> _persistPreparedImport(_PreparedImport prepared) async {
     final importedTimetable = prepared.timetable;
-    _lastImportSource = prepared.source;
-    _lastPreviewSummary = prepared.summary;
-
-    final detectedPath = prepared.path;
-    if (detectedPath != null) {
-      await _saveDetectedApiPath(detectedPath);
-    }
-
-    await ref.read(applyImportedSemesterMetadataProvider)(
-      semesterStart: importedTimetable.semesterStart,
+    final persistImportedTimetable = ref.read(persistImportedTimetableProvider);
+    final result = await persistImportedTimetable(
+      timetable: importedTimetable,
+      detectedApiPath: prepared.path,
     );
-
-    final isar = await ref.read(isarProvider.future);
-    final semesterId = ref.read(selectedSemesterIdProvider);
-    await KiroTimeDatabase.replaceWithImportedData(
-      isar,
-      semesterId: semesterId,
-      metas: importedTimetable.metas,
-      schedules: importedTimetable.schedules,
-    );
-
-    ref.invalidate(courseMetasProvider);
-    ref.invalidate(allCourseSchedulesProvider);
-    ref.invalidate(currentWeekSchedulesProvider);
-    ref.invalidate(timetablePlacementsProvider);
-    ref.invalidate(timetableVisibleItemsProvider);
 
     if (!mounted) {
       return;
     }
+    _lastImportSource = prepared.source;
+    _lastPreviewSummary = prepared.summary;
     setState(() {
       _lastImportedScheduleCount = importedTimetable.schedules.length;
     });
+    final warningText = result.warnings.isEmpty
+        ? ''
+        : '；${result.warnings.join('；')}';
     _showMessage(
-      '已从${prepared.source}导入 ${importedTimetable.schedules.length} 条上课安排',
+      '已从${prepared.source}导入 ${importedTimetable.schedules.length} 条上课安排$warningText',
     );
   }
 
@@ -331,71 +368,27 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     );
   }
 
-  Future<String?> _readSemesterTimetableJsonFromPath(
+  Future<_SemesterApiReadResult> _readSemesterTimetableJsonFromPath(
     String semesterApiPath, {
     int? schoolYearStart,
     int? semester,
   }) async {
-    final xnmExpression = schoolYearStart == null
-        ? r"readValue('#xnm_hide')"
-        : jsonEncode(schoolYearStart.toString());
-    final xqmExpression = semester == null
-        ? r"readValue('#xqm_hide')"
-        : jsonEncode(semester == 2 ? '12' : '3');
-    final script =
-        '''
-(function() {
-  function readValue(selector) {
-    var element = document.querySelector(selector);
-    return element && element.value ? element.value : '';
-  }
-  var xnm = $xnmExpression;
-  var xqm = $xqmExpression;
-  var semesterApiPath = ${jsonEncode(semesterApiPath)};
-  if (!xnm || !xqm) {
-    return JSON.stringify({ok: false, error: 'missing xnm/xqm'});
-  }
-  var path = window._path || '';
-  var body = new URLSearchParams();
-  body.set('xnm', xnm);
-  body.set('xqm', xqm);
-  body.set('doType', 'app');
-  body.set('kblx', '2');
-  try {
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', semesterApiPath.indexOf('http') === 0 ? semesterApiPath : path + semesterApiPath, false);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
-    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-    xhr.send(body.toString());
-    var text = xhr.responseText || '';
-    var payload = text;
-    try {
-      payload = JSON.parse(text);
-    } catch (error) {}
-    return JSON.stringify({
-      ok: xhr.status >= 200 && xhr.status < 300,
-      status: xhr.status,
-      xnm: xnm,
-      xqm: xqm,
-      payload: payload,
-      text: text
-    });
-  } catch (error) {
-    return JSON.stringify({ok: false, xnm: xnm, xqm: xqm, error: String(error)});
-  }
-})()
-''';
-
-    final rawResult = await _controller.runJavaScriptReturningResult(script);
-    final decoded = WebViewHtmlCodec.decodeJson(rawResult);
-    final payload = _extractSemesterJsonPayload(decoded);
-    if (payload == null) {
-      if (decoded is Map && decoded['error'] != null) {
-        _lastSemesterApiError = decoded['error'].toString();
-      }
-      return null;
+    await _semesterApiChannelReady;
+    final channelError = _semesterApiChannelError;
+    if (channelError != null) {
+      return _SemesterApiReadResult(error: channelError);
     }
-    return payload;
+
+    final response = await _semesterApiProbeClient.request(
+      semesterApiPath: semesterApiPath,
+      schoolYear: schoolYearStart?.toString(),
+      semesterCode: semester == null ? null : (semester == 2 ? '12' : '3'),
+    );
+    final payload = _extractSemesterJsonPayload(response.value);
+    if (payload != null) {
+      return _SemesterApiReadResult(payload: payload);
+    }
+    return _SemesterApiReadResult(error: response.error ?? '未返回可识别的课表 JSON');
   }
 
   String? _extractSemesterJsonPayload(Object? decoded) {
@@ -714,6 +707,7 @@ $styleSamples
               children: <Widget>[
                 TextField(
                   controller: _urlController,
+                  enabled: !_isLoading,
                   keyboardType: TextInputType.url,
                   textInputAction: TextInputAction.go,
                   decoration: const InputDecoration(
@@ -721,13 +715,13 @@ $styleSamples
                     hintText: 'https://example.edu.cn',
                     border: OutlineInputBorder(),
                   ),
-                  onSubmitted: (_) => _loadUrl(),
+                  onSubmitted: _isLoading ? null : (_) => _loadUrl(),
                 ),
                 const SizedBox(height: 12),
                 Row(
                   children: <Widget>[
                     FilledButton.icon(
-                      onPressed: _loadUrl,
+                      onPressed: _isLoading ? null : _loadUrl,
                       icon: const Icon(Icons.open_in_browser_outlined),
                       label: const Text('打开页面'),
                     ),
@@ -803,7 +797,10 @@ $styleSamples
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: borderColor)),
               ),
-              child: WebViewWidget(controller: _controller),
+              child: AbsorbPointer(
+                absorbing: _isLoading,
+                child: WebViewWidget(controller: _controller),
+              ),
             ),
           ),
         ],
@@ -824,4 +821,20 @@ class _PreparedImport {
   final String source;
   final String? path;
   final ImportPreviewSummary summary;
+}
+
+class _SemesterApiReadResult {
+  const _SemesterApiReadResult({this.payload, this.error});
+
+  final String? payload;
+  final String? error;
+}
+
+class _PageChangedDuringImport implements Exception {
+  const _PageChangedDuringImport(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
