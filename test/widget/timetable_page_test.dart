@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kiro_time/features/import_export/application/import_export_providers.dart';
 import 'package:kiro_time/features/import_export/data/android_timetable_file_gateway.dart';
@@ -15,6 +16,7 @@ import 'package:kiro_time/features/timetable/domain/semester_settings.dart';
 import 'package:kiro_time/features/timetable/domain/section_time_settings.dart';
 import 'package:kiro_time/features/timetable/domain/timetable_layout.dart';
 import 'package:kiro_time/features/timetable/presentation/timetable_page.dart';
+import 'package:kiro_time/ui/glass.dart';
 
 void main() {
   test(
@@ -939,6 +941,92 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('第17周'), findsOneWidget);
+  });
+
+  testWidgets('canvas paints behind the system status bar', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          timetablePlacementsProvider.overrideWith(
+            (ref) async => <TimetableCoursePlacement>[],
+          ),
+          currentWeekProvider.overrideWith((ref) => 16),
+        ],
+        child: const MaterialApp(home: TimetablePage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(scaffold.backgroundColor, KiroPalette.canvasGradient.first);
+    expect(find.byType(KiroCanvas), findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.byType(KiroCanvas),
+        matching: find.byType(SafeArea),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(SafeArea),
+        matching: find.byKey(const ValueKey<String>('week-content-16')),
+      ),
+      findsOneWidget,
+    );
+
+    final overlay = tester.widget<AnnotatedRegion<SystemUiOverlayStyle>>(
+      find.byType(AnnotatedRegion<SystemUiOverlayStyle>),
+    );
+    expect(overlay.value.statusBarColor, Colors.transparent);
+    expect(overlay.value.statusBarIconBrightness, Brightness.dark);
+  });
+
+  testWidgets('next week enters from right while current week exits left', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          timetablePlacementsProvider.overrideWith(
+            (ref) async => <TimetableCoursePlacement>[],
+          ),
+          currentWeekProvider.overrideWith((ref) => 16),
+        ],
+        child: const MaterialApp(home: TimetablePage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('下一周'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    final incomingSlide = tester.widget<SlideTransition>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey<String>('week-content-17')),
+            matching: find.byType(SlideTransition),
+          )
+          .first,
+    );
+    final outgoingSlide = tester.widget<SlideTransition>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey<String>('week-content-16')),
+            matching: find.byType(SlideTransition),
+          )
+          .first,
+    );
+
+    expect(incomingSlide.position.value.dx, greaterThan(0));
+    expect(outgoingSlide.position.value.dx, lessThan(0));
   });
 
   testWidgets('week label opens lightweight week picker only', (tester) async {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
 import '../../courses/data/course_schedule_edit.dart';
 import '../../courses/domain/course_week_text.dart';
@@ -33,32 +34,43 @@ class TimetablePage extends ConsumerWidget {
     final appearance = ref.watch(timetableAppearanceSettingsProvider);
     ref.watch(settingsBootstrapProvider);
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: Stack(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: Scaffold(
+        backgroundColor: KiroPalette.canvasGradient.first,
+        body: Stack(
           children: <Widget>[
             const Positioned.fill(child: KiroCanvas()),
-            Column(
-              children: <Widget>[
-                Expanded(
-                  child: visibleItemsAsync.when(
-                    data: (visibleItems) => _WeekTransition(
-                      direction: weekTransitionDirection,
-                      child: _WeekContent(
-                        key: ValueKey<String>('week-content-$currentWeek'),
-                        currentWeek: currentWeek,
-                        semesterSettings: semesterSettings,
-                        appearance: appearance,
-                        visibleItems: visibleItems,
+            SafeArea(
+              child: Column(
+                children: <Widget>[
+                  Expanded(
+                    child: visibleItemsAsync.when(
+                      data: (visibleItems) => _WeekTransition(
+                        direction: weekTransitionDirection,
+                        child: _WeekContent(
+                          key: ValueKey<String>('week-content-$currentWeek'),
+                          currentWeek: currentWeek,
+                          semesterSettings: semesterSettings,
+                          appearance: appearance,
+                          visibleItems: visibleItems,
+                        ),
                       ),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (error, stackTrace) => _LoadError(error: error),
                     ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (error, stackTrace) => _LoadError(error: error),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -76,16 +88,17 @@ class _WeekTransition extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 160),
+      duration: const Duration(milliseconds: 240),
       switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
       transitionBuilder: (child, animation) {
+        final isIncoming = child.key == this.child.key;
         final offsetAnimation = Tween<Offset>(
-          begin: Offset(direction * 0.045, 0),
+          begin: Offset((isIncoming ? direction : -direction) * 0.055, 0),
           end: Offset.zero,
         ).animate(animation);
         return FadeTransition(
-          opacity: animation,
+          opacity: Tween<double>(begin: 0.82, end: 1).animate(animation),
           child: SlideTransition(position: offsetAnimation, child: child),
         );
       },
