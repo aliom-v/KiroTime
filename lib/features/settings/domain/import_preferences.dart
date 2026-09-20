@@ -74,9 +74,9 @@ class ImportPreferences {
     return const ImportPreferences(
       academicSystemUrl: '',
       semesterApiPath: '',
-      userAgentMode: UserAgentMode.mobile,
+      userAgentMode: UserAgentMode.desktop,
       customUserAgent: '',
-      keepWebViewLoginState: false,
+      keepWebViewLoginState: true,
       keepHtmlDiagnostics: false,
     );
   }
@@ -84,10 +84,11 @@ class ImportPreferences {
   factory ImportPreferences.fromJson(Map<String, dynamic> json) {
     final fallback = ImportPreferences.defaults();
     return ImportPreferences(
-      academicSystemUrl: _stringValue(
-        json['academicSystemUrl'],
-        fallback.academicSystemUrl,
-      ),
+      academicSystemUrl:
+          normalizeAcademicHttpsUrl(
+            _stringValue(json['academicSystemUrl'], ''),
+          ) ??
+          fallback.academicSystemUrl,
       savedAcademicUrlBookmarks: _decodeSavedAcademicUrls(
         json['savedAcademicUrls'],
       ),
@@ -140,7 +141,9 @@ class ImportPreferences {
     bool? keepHtmlDiagnostics,
   }) {
     return ImportPreferences(
-      academicSystemUrl: academicSystemUrl ?? this.academicSystemUrl,
+      academicSystemUrl: academicSystemUrl == null
+          ? this.academicSystemUrl
+          : normalizeAcademicHttpsUrl(academicSystemUrl) ?? '',
       savedAcademicUrlBookmarks: _decodeSavedAcademicUrls(
         savedAcademicUrlBookmarks ??
             (savedAcademicUrls ?? this.savedAcademicUrlBookmarks),
@@ -173,7 +176,7 @@ List<SavedAcademicUrl> _decodeSavedAcademicUrls(Object? rawValue) {
     if (bookmark == null) {
       continue;
     }
-    final normalizedUrl = _normalizeAcademicUrl(bookmark.url);
+    final normalizedUrl = normalizeAcademicHttpsUrl(bookmark.url);
     if (normalizedUrl == null || !normalizedUrls.add(normalizedUrl)) {
       continue;
     }
@@ -184,15 +187,22 @@ List<SavedAcademicUrl> _decodeSavedAcademicUrls(Object? rawValue) {
   return List<SavedAcademicUrl>.unmodifiable(bookmarks);
 }
 
-String? _normalizeAcademicUrl(String value) {
+String? normalizeAcademicHttpsUrl(String value) {
   final trimmed = value.trim();
-  final uri = Uri.tryParse(trimmed);
-  if (uri == null ||
-      uri.host.isEmpty ||
-      (uri.scheme != 'http' && uri.scheme != 'https')) {
+  if (trimmed.isEmpty) {
     return null;
   }
-  return uri.hasFragment ? trimmed.substring(0, trimmed.indexOf('#')) : trimmed;
+  final candidate = trimmed.contains('://') ? trimmed : 'https://$trimmed';
+  final uri = Uri.tryParse(candidate);
+  if (uri == null ||
+      uri.host.isEmpty ||
+      uri.scheme != 'https' ||
+      uri.userInfo.isNotEmpty) {
+    return null;
+  }
+  return uri.hasFragment
+      ? candidate.substring(0, candidate.indexOf('#'))
+      : candidate;
 }
 
 T _enumFromName<T extends Enum>(List<T> values, Object? rawValue, T fallback) {

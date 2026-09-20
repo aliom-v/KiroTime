@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// 统一的设计系统（浅色 · 液态玻璃 / Liquid Glass 风格）。
 ///
@@ -68,6 +69,13 @@ ThemeData buildKiroTheme() {
       elevation: 0,
       centerTitle: false,
       foregroundColor: KiroPalette.textPrimary,
+      systemOverlayStyle: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Color(0xFFEAF1FF),
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
     ),
     // 输入框：浅色玻璃感
     inputDecorationTheme: InputDecorationTheme(

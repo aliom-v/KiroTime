@@ -24,15 +24,15 @@ void main() {
   });
 
   test('import preferences expose effective user agent', () {
-    final mobile = ImportPreferences.defaults();
-    final desktop = mobile.copyWith(userAgentMode: UserAgentMode.desktop);
-    final custom = mobile.copyWith(
+    final desktop = ImportPreferences.defaults();
+    final mobile = desktop.copyWith(userAgentMode: UserAgentMode.mobile);
+    final custom = desktop.copyWith(
       userAgentMode: UserAgentMode.custom,
       customUserAgent: 'Custom UA',
     );
 
-    expect(mobile.effectiveUserAgent, contains('Mobile'));
     expect(desktop.effectiveUserAgent, contains('Windows NT'));
+    expect(mobile.effectiveUserAgent, contains('Mobile'));
     expect(custom.effectiveUserAgent, 'Custom UA');
     expect(
       ImportPreferences.fromJson(custom.toJson()).effectiveUserAgent,
@@ -87,13 +87,27 @@ void main() {
     },
   );
 
-  test('import preferences default to private import behavior', () {
+  test('import preferences default to desktop login-preserving behavior', () {
     final defaults = ImportPreferences.defaults();
 
     expect(defaults.academicSystemUrl, isEmpty);
     expect(defaults.savedAcademicUrls, isEmpty);
     expect(defaults.semesterApiPath, isEmpty);
-    expect(defaults.keepWebViewLoginState, isFalse);
+    expect(defaults.userAgentMode, UserAgentMode.desktop);
+    expect(defaults.keepWebViewLoginState, isTrue);
     expect(defaults.keepHtmlDiagnostics, isFalse);
+  });
+
+  test('academic URLs normalize bare hosts to HTTPS and reject HTTP', () {
+    expect(
+      normalizeAcademicHttpsUrl('jw.school.edu.cn/login#session'),
+      'https://jw.school.edu.cn/login',
+    );
+    expect(
+      normalizeAcademicHttpsUrl('https://jw.school.edu.cn/login'),
+      'https://jw.school.edu.cn/login',
+    );
+    expect(normalizeAcademicHttpsUrl('http://jw.school.edu.cn'), isNull);
+    expect(normalizeAcademicHttpsUrl('ftp://jw.school.edu.cn'), isNull);
   });
 }

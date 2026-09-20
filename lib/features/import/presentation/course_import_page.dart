@@ -99,11 +99,13 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
 
   Future<void> _loadUrl() async {
     final input = _urlController.text.trim();
-    final uri = Uri.tryParse(input);
-    if (!_isSupportedAcademicUrl(uri)) {
-      _showMessage('请输入有效网址');
+    final normalizedUrl = normalizeAcademicHttpsUrl(input);
+    if (normalizedUrl == null) {
+      _showMessage('请输入有效的 HTTPS 网址');
       return;
     }
+    _urlController.text = normalizedUrl;
+    final uri = Uri.parse(normalizedUrl);
 
     await _semesterApiChannelReady;
     final channelError = _semesterApiChannelError;
@@ -111,7 +113,7 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
       _showMessage(channelError);
       return;
     }
-    await _controller.loadRequest(uri!);
+    await _controller.loadRequest(uri);
   }
 
   Widget _buildUrlPresetChips() {
@@ -161,16 +163,19 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
       _showMessage('请先输入或打开一个网址');
       return;
     }
-    final uri = Uri.tryParse(url);
-    if (!_isSupportedAcademicUrl(uri)) {
-      _showMessage('网址无效，无法固定');
+    final normalizedUrl = normalizeAcademicHttpsUrl(url);
+    if (normalizedUrl == null) {
+      _showMessage('仅支持 HTTPS 网址');
       return;
     }
     final prefs = ref.read(importPreferencesProvider);
     final normalizedBookmark = ImportPreferences.defaults()
         .copyWith(
           savedAcademicUrlBookmarks: <SavedAcademicUrl>[
-            SavedAcademicUrl(name: _shortHost(url), url: url),
+            SavedAcademicUrl(
+              name: _shortHost(normalizedUrl),
+              url: normalizedUrl,
+            ),
           ],
         )
         .savedAcademicUrlBookmarks
@@ -191,21 +196,11 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     _showMessage('已固定到常用网址');
   }
 
-  bool _isSupportedAcademicUrl(Uri? uri) {
-    return uri != null &&
-        uri.host.isNotEmpty &&
-        (uri.scheme == 'http' || uri.scheme == 'https');
-  }
-
   Future<void> _applyImportPreferences() async {
     await ref.read(settingsBootstrapProvider.future);
     final preferences = ref.read(importPreferencesProvider);
     _urlController.text = preferences.academicSystemUrl;
     await _controller.setUserAgent(preferences.effectiveUserAgent);
-    if (!preferences.keepWebViewLoginState) {
-      await _controller.clearCache();
-      await _controller.clearLocalStorage();
-    }
   }
 
   Future<void> _importCurrentPage() async {
