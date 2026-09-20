@@ -8,6 +8,7 @@ import '../../courses/data/course_meta.dart';
 import '../../courses/data/course_schedule_edit.dart';
 import '../../courses/data/course_schedule.dart';
 import '../domain/semester_settings.dart';
+import '../domain/section_time_settings.dart';
 import '../domain/timetable_layout.dart';
 
 final semesterListProvider = StateProvider<List<SemesterSettings>>(
@@ -194,6 +195,43 @@ final applyImportedSemesterMetadataToSemesterProvider =
           semesterId: semesterId,
           semesterStart: normalizedStart,
         );
+      };
+    });
+
+typedef ApplyImportedSectionTimesToSemester =
+    Future<void> Function({
+      required String semesterId,
+      required SectionTimeSettings sectionTimeSettings,
+    });
+
+final applyImportedSectionTimesToSemesterProvider =
+    Provider<ApplyImportedSectionTimesToSemester>((ref) {
+      return ({
+        required String semesterId,
+        required SectionTimeSettings sectionTimeSettings,
+      }) async {
+        final semesters = ref.read(semesterListProvider);
+        final index = semesters.indexWhere(
+          (semester) => semester.id == semesterId,
+        );
+        if (index < 0) {
+          throw StateError('目标学期不存在：$semesterId');
+        }
+        final target = semesters[index];
+        final updated = target.copyWith(
+          sectionTimeSettings: sectionTimeSettings.ensureSectionCount(
+            target.sectionCount,
+          ),
+        );
+        final isar = await KiroTimeDatabase.open();
+        await KiroTimeDatabase.upsertSemester(isar, updated);
+        ref
+            .read(semesterListProvider.notifier)
+            .state = sortSemestersByAcademicTime(<SemesterSettings>[
+          for (final semester in semesters)
+            if (semester.id == semesterId) updated else semester,
+        ]);
+        invalidateTimetableData(ref);
       };
     });
 

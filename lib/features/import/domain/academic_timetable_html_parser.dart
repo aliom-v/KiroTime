@@ -6,18 +6,22 @@ import '../../../features/courses/data/course_meta.dart';
 import '../../../features/courses/data/course_schedule.dart';
 import '../../courses/domain/course_week_text.dart';
 import '../../timetable/domain/academic_calendar.dart';
+import '../../timetable/domain/section_time_settings.dart';
 import '../../timetable/domain/semester_settings.dart';
+import 'imported_section_time_evidence.dart';
 
 class ImportedTimetable {
   const ImportedTimetable({
     required this.metas,
     required this.schedules,
     this.semesterStart,
+    this.sectionTimeEvidence,
   });
 
   final List<CourseMeta> metas;
   final List<CourseSchedule> schedules;
   final DateTime? semesterStart;
+  final ImportedSectionTimeEvidence? sectionTimeEvidence;
 }
 
 class AcademicTimetableHtmlParser {
@@ -32,6 +36,18 @@ class AcademicTimetableHtmlParser {
   static final RegExp _sectionRangePattern = RegExp(
     r'(?:第\s*)?(\d+)\s*[-~－—至到]\s*(\d+)\s*节',
   );
+  static final RegExp _clockPattern = RegExp(
+    r'(?<!\d)(\d{1,2}):(\d{2})(?::\d{2})?(?!\d)',
+  );
+  static final RegExp _clockRangePattern = RegExp(
+    r'(?<!\d)(\d{1,2}):(\d{2})(?::\d{2})?\s*[-~－—至到]\s*'
+    r'(\d{1,2}):(\d{2})(?::\d{2})?(?!\d)',
+  );
+  static final RegExp _sectionAxisLabelPattern = RegExp(
+    r'^\s*(?:第\s*)?(\d{1,2})(?:\s*节)?(?:\s+|$)',
+  );
+  static const int _fallbackSectionDurationMinutes =
+      SectionTimeSettings.defaultSectionDurationMinutes;
 
   static ImportedTimetable parse(String html) {
     final metas = <CourseMeta>[];
@@ -72,11 +88,13 @@ class AcademicTimetableHtmlParser {
 
     final document = html_parser.parse(html);
     _addAllFromDocument(document, addParsedSchedule);
+    final sectionTimeEvidence = _parseSectionTimeEvidence(document);
 
     return ImportedTimetable(
       metas: metas,
       schedules: schedules,
       semesterStart: _parseSemesterStart(document),
+      sectionTimeEvidence: sectionTimeEvidence,
     );
   }
 
@@ -124,6 +142,183 @@ class AcademicTimetableHtmlParser {
         addParsedSchedule(parsed);
       }
     }
+  }
+
+  static ImportedSectionTimeEvidence? _parseSectionTimeEvidence(
+    dom.Document document,
+  ) {
+    ImportedSectionTimeEvidence? bestEvidence;
+    for (final table in document.querySelectorAll('table')) {
+      final evidence = _parseSectionTimeEvidenceFromTable(table);
+      if (evidence == null) {
+        continue;
+      }
+      if (bestEvidence == null ||
+          evidence.settings.sections.length >
+              bestEvidence.settings.sections.length) {
+        bestEvidence = evidence;
+      }
+    }
+    return bestEvidence;
+  }
+
+  static ImportedSectionTimeEvidence? _parseSectionTimeEvidenceFromTable(
+    dom.Element table,
+  ) {
+    final rows = _directTableRows(table);
+    if (rows.length < 3) {
+      return null;
+    }
+
+    final headerRowIndex = _findDayHeaderRowIndex(rows);
+    if (headerRowIndex < 0 || headerRowIndex + 2 >= rows.length) {
+      return null;
+    }
+
+    final candidates = <_SectionTimeAxisEntry>[];
+    var sawAxisSectionWithoutTime = false;
+    for (
+      var rowIndex = headerRowIndex + 1;
+      rowIndex < rows.length;
+      rowIndex++
+    ) {
+      final cells = _directTableCells(rows[rowIndex]);
+      if (cells.isEmpty) {
+        continue;
+      }
+
+      final axisCell = _parseSectionAxisLabel(cells.first);
+      if (axisCell == null) {
+        continue;
+      }
+      if (axisCell.time == null) {
+        sawAxisSectionWithoutTime = true;
+        continue;
+      }
+      candidates.add(
+        _SectionTimeAxisEntry(
+          section: axisCell.section,
+          startMinutes: axisCell.time!.startMinutes,
+          endMinutes: axisCell.time!.endMinutes,
+        ),
+      );
+    }
+
+    if (sawAxisSectionWithoutTime || candidates.length < 2) {
+      return null;
+    }
+
+    final firstHasEnd = candidates.first.endMinutes != null;
+    if (candidates.any(
+      (_SectionTimeAxisEntry candidate) =>
+          (candidate.endMinutes != null) != firstHasEnd,
+    )) {
+      return null;
+    }
+
+    for (var index = 0; index < candidates.length; index++) {
+      final candidate = candidates[index];
+      if (candidate.section != candidates.first.section + index) {
+        return null;
+      }
+      final endMinutes =
+          candidate.endMinutes ??
+          candidate.startMinutes + _fallbackSectionDurationMinutes;
+      if (endMinutes <= candidate.startMinutes ||
+          endMinutes > 24 * 60 ||
+          (index > 0 &&
+              candidate.startMinutes <
+                  (candidates[index - 1].endMinutes ??
+                      candidates[index - 1].startMinutes +
+                          _fallbackSectionDurationMinutes))) {
+        return null;
+      }
+    }
+
+    final sectionTimes = <SectionTime>[
+      for (final candidate in candidates)
+        SectionTime(
+          section: candidate.section,
+          startMinutes: candidate.startMinutes,
+          endMinutes:
+              candidate.endMinutes ??
+              candidate.startMinutes + _fallbackSectionDurationMinutes,
+        ),
+    ];
+    return ImportedSectionTimeEvidence(
+      settings: SectionTimeSettings(sectionTimes),
+      kind: firstHasEnd
+          ? ImportedSectionTimeEvidenceKind.explicitRanges
+          : ImportedSectionTimeEvidenceKind.startTimesWithDurationFallback,
+    );
+  }
+
+  static _SectionAxisLabel? _parseSectionAxisLabel(dom.Element cell) {
+    final lines = _extractCellLines(cell)
+        .map(_cleanLabeledValue)
+        .where((String line) => line.isNotEmpty)
+        .toList(growable: false);
+    if (lines.isEmpty) {
+      return null;
+    }
+
+    final sectionMatch = _sectionAxisLabelPattern.firstMatch(lines.first);
+    if (sectionMatch == null) {
+      return null;
+    }
+    final section = int.tryParse(sectionMatch.group(1)!);
+    if (section == null || section < 1 || section > _maxSectionCount) {
+      return null;
+    }
+
+    final clockText = lines.join(' ');
+    final clocks = _clockPattern.allMatches(clockText).toList();
+    if (clocks.length == 2) {
+      final range = _parseClockRange(clockText);
+      return _SectionAxisLabel(section: section, time: range);
+    }
+    if (clocks.length != 1) {
+      return _SectionAxisLabel(section: section);
+    }
+    final startMinutes = _parseClockMatch(clocks.single);
+    if (startMinutes == null) {
+      return _SectionAxisLabel(section: section);
+    }
+    return _SectionAxisLabel(
+      section: section,
+      time: _SectionClockRange(startMinutes: startMinutes),
+    );
+  }
+
+  static _SectionClockRange? _parseClockRange(String text) {
+    final match = _clockRangePattern.firstMatch(text);
+    if (match == null) {
+      return null;
+    }
+    final clocks = _clockPattern
+        .allMatches(match.group(0)!)
+        .toList(growable: false);
+    if (clocks.length != 2) {
+      return null;
+    }
+    final startMinutes = _parseClockMatch(clocks.first);
+    final endMinutes = _parseClockMatch(clocks.last);
+    if (startMinutes == null || endMinutes == null) {
+      return null;
+    }
+    return _SectionClockRange(
+      startMinutes: startMinutes,
+      endMinutes: endMinutes,
+    );
+  }
+
+  static int? _parseClockMatch(RegExpMatch match) {
+    final hour = int.tryParse(match.group(1)!);
+    final minute = int.tryParse(match.group(2)!);
+    if (hour == null || minute == null || hour > 23 || minute > 59) {
+      return null;
+    }
+    return hour * 60 + minute;
   }
 
   static List<_ParsedSchedule> _parseScheduleElement(dom.Element element) {
@@ -1306,4 +1501,30 @@ class _GridLineRange {
 
   final int start;
   final int endLine;
+}
+
+class _SectionTimeAxisEntry {
+  const _SectionTimeAxisEntry({
+    required this.section,
+    required this.startMinutes,
+    required this.endMinutes,
+  });
+
+  final int section;
+  final int startMinutes;
+  final int? endMinutes;
+}
+
+class _SectionAxisLabel {
+  const _SectionAxisLabel({required this.section, this.time});
+
+  final int section;
+  final _SectionClockRange? time;
+}
+
+class _SectionClockRange {
+  const _SectionClockRange({required this.startMinutes, this.endMinutes});
+
+  final int startMinutes;
+  final int? endMinutes;
 }

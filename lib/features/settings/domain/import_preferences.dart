@@ -1,5 +1,30 @@
 enum UserAgentMode { mobile, desktop, custom }
 
+class SavedAcademicUrl {
+  const SavedAcademicUrl({required this.name, required this.url});
+
+  final String name;
+  final String url;
+
+  String get displayName {
+    final trimmedName = name.trim();
+    if (trimmedName.isNotEmpty) {
+      return trimmedName;
+    }
+    final uri = Uri.tryParse(url);
+    return uri != null && uri.host.isNotEmpty ? uri.host : url;
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{'name': name, 'url': url};
+
+  factory SavedAcademicUrl.fromJson(Map<String, dynamic> json) {
+    return SavedAcademicUrl(
+      name: json['name'] is String ? json['name'] as String : '',
+      url: json['url'] is String ? json['url'] as String : '',
+    );
+  }
+}
+
 class ImportPreferences {
   const ImportPreferences({
     required this.academicSystemUrl,
@@ -8,6 +33,7 @@ class ImportPreferences {
     required this.customUserAgent,
     required this.keepWebViewLoginState,
     required this.keepHtmlDiagnostics,
+    this.savedAcademicUrlBookmarks = const <SavedAcademicUrl>[],
   });
 
   static const String mobileUserAgent =
@@ -17,6 +43,13 @@ class ImportPreferences {
   static const String desktopUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
+  /// 用户固定的常用网址（导入页快捷选择 + 设置中管理）。
+  final List<SavedAcademicUrl> savedAcademicUrlBookmarks;
+
+  List<String> get savedAcademicUrls => savedAcademicUrlBookmarks
+      .map((bookmark) => bookmark.url)
+      .toList(growable: false);
 
   final String academicSystemUrl;
   final String semesterApiPath;
@@ -41,9 +74,9 @@ class ImportPreferences {
     return const ImportPreferences(
       academicSystemUrl: '',
       semesterApiPath: '',
-      userAgentMode: UserAgentMode.mobile,
+      userAgentMode: UserAgentMode.desktop,
       customUserAgent: '',
-      keepWebViewLoginState: false,
+      keepWebViewLoginState: true,
       keepHtmlDiagnostics: false,
     );
   }
@@ -51,9 +84,13 @@ class ImportPreferences {
   factory ImportPreferences.fromJson(Map<String, dynamic> json) {
     final fallback = ImportPreferences.defaults();
     return ImportPreferences(
-      academicSystemUrl: _stringValue(
-        json['academicSystemUrl'],
-        fallback.academicSystemUrl,
+      academicSystemUrl:
+          normalizeAcademicHttpsUrl(
+            _stringValue(json['academicSystemUrl'], ''),
+          ) ??
+          fallback.academicSystemUrl,
+      savedAcademicUrlBookmarks: _decodeSavedAcademicUrls(
+        json['savedAcademicUrls'],
       ),
       semesterApiPath: _stringValue(
         json['semesterApiPath'],
@@ -82,6 +119,9 @@ class ImportPreferences {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'academicSystemUrl': academicSystemUrl,
+      'savedAcademicUrls': savedAcademicUrlBookmarks
+          .map((bookmark) => bookmark.toJson())
+          .toList(growable: false),
       'semesterApiPath': semesterApiPath,
       'userAgentMode': userAgentMode.name,
       'customUserAgent': customUserAgent,
@@ -92,6 +132,8 @@ class ImportPreferences {
 
   ImportPreferences copyWith({
     String? academicSystemUrl,
+    List<String>? savedAcademicUrls,
+    List<SavedAcademicUrl>? savedAcademicUrlBookmarks,
     String? semesterApiPath,
     UserAgentMode? userAgentMode,
     String? customUserAgent,
@@ -99,7 +141,13 @@ class ImportPreferences {
     bool? keepHtmlDiagnostics,
   }) {
     return ImportPreferences(
-      academicSystemUrl: academicSystemUrl ?? this.academicSystemUrl,
+      academicSystemUrl: academicSystemUrl == null
+          ? this.academicSystemUrl
+          : normalizeAcademicHttpsUrl(academicSystemUrl) ?? '',
+      savedAcademicUrlBookmarks: _decodeSavedAcademicUrls(
+        savedAcademicUrlBookmarks ??
+            (savedAcademicUrls ?? this.savedAcademicUrlBookmarks),
+      ),
       semesterApiPath: semesterApiPath ?? this.semesterApiPath,
       userAgentMode: userAgentMode ?? this.userAgentMode,
       customUserAgent: customUserAgent ?? this.customUserAgent,
@@ -108,6 +156,53 @@ class ImportPreferences {
       keepHtmlDiagnostics: keepHtmlDiagnostics ?? this.keepHtmlDiagnostics,
     );
   }
+}
+
+List<SavedAcademicUrl> _decodeSavedAcademicUrls(Object? rawValue) {
+  if (rawValue is! List) {
+    return const <SavedAcademicUrl>[];
+  }
+  final bookmarks = <SavedAcademicUrl>[];
+  final normalizedUrls = <String>{};
+  for (final item in rawValue) {
+    final bookmark = switch (item) {
+      SavedAcademicUrl value => value,
+      String value => SavedAcademicUrl(name: '', url: value),
+      Map value => SavedAcademicUrl.fromJson(
+        value.map((key, value) => MapEntry(key.toString(), value)),
+      ),
+      _ => null,
+    };
+    if (bookmark == null) {
+      continue;
+    }
+    final normalizedUrl = normalizeAcademicHttpsUrl(bookmark.url);
+    if (normalizedUrl == null || !normalizedUrls.add(normalizedUrl)) {
+      continue;
+    }
+    bookmarks.add(
+      SavedAcademicUrl(name: bookmark.name.trim(), url: normalizedUrl),
+    );
+  }
+  return List<SavedAcademicUrl>.unmodifiable(bookmarks);
+}
+
+String? normalizeAcademicHttpsUrl(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  final candidate = trimmed.contains('://') ? trimmed : 'https://$trimmed';
+  final uri = Uri.tryParse(candidate);
+  if (uri == null ||
+      uri.host.isEmpty ||
+      uri.scheme != 'https' ||
+      uri.userInfo.isNotEmpty) {
+    return null;
+  }
+  return uri.hasFragment
+      ? candidate.substring(0, candidate.indexOf('#'))
+      : candidate;
 }
 
 T _enumFromName<T extends Enum>(List<T> values, Object? rawValue, T fallback) {

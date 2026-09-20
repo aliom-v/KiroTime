@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/isar_database.dart';
 import '../../courses/data/course_meta.dart';
+import '../../import/application/webview_login_data_provider.dart';
 import '../../import/presentation/course_import_page.dart';
 import '../../import_export/application/import_export_providers.dart';
 import '../../import_export/domain/timetable_file_naming.dart';
@@ -13,13 +14,17 @@ import '../../import_export/domain/timetable_json_codec.dart';
 import '../../timetable/application/timetable_providers.dart';
 import '../../timetable/domain/semester_settings.dart';
 import '../../timetable/domain/section_time_settings.dart';
+import '../../timetable/domain/section_time_presets.dart';
 import '../../timetable/presentation/timetable_page.dart';
 import '../application/settings_providers.dart';
 import '../domain/import_preferences.dart';
 import '../domain/timetable_appearance_settings.dart';
+import '../../../ui/glass.dart';
 
 class SettingsCenterDialog extends ConsumerStatefulWidget {
-  const SettingsCenterDialog({super.key});
+  const SettingsCenterDialog({super.key, this.fullScreen = false});
+
+  final bool fullScreen;
 
   @override
   ConsumerState<SettingsCenterDialog> createState() =>
@@ -34,8 +39,14 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
   late SemesterSettings _editingSemester;
   late TimetableAppearanceSettings _appearance;
   late ImportPreferences _importPreferences;
+  final List<GlobalKey> _sectionKeys = List<GlobalKey>.generate(
+    4,
+    (_) => GlobalKey(),
+  );
   bool _creatingSemester = false;
   bool _busy = false;
+  bool _hasUnsavedChanges = false;
+  bool _suppressDirtyTracking = false;
 
   @override
   void initState() {
@@ -55,6 +66,14 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     _customUaController = TextEditingController(
       text: _importPreferences.customUserAgent,
     );
+    for (final controller in <TextEditingController>[
+      _displayNameController,
+      _urlController,
+      _semesterApiPathController,
+      _customUaController,
+    ]) {
+      controller.addListener(_markDirty);
+    }
   }
 
   @override
@@ -79,38 +98,46 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
         mediaQuery.viewPadding.bottom;
 
     return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: safeHeight * 0.88),
+      constraints: BoxConstraints(
+        maxHeight: widget.fullScreen ? safeHeight : safeHeight * 0.88,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    '设置',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
+          if (!widget.fullScreen)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      '设置',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
-                ),
-                IconButton(
-                  tooltip: '关闭',
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
+                  IconButton(
+                    tooltip: '关闭',
+                    onPressed: _requestClose,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
             ),
-          ),
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  if (widget.fullScreen) ...<Widget>[
+                    _SettingsSectionNavigation(onSelected: _jumpToSection),
+                    const SizedBox(height: 12),
+                  ],
                   _SettingsSection(
+                    key: _sectionKeys[0],
                     title: '课表设置',
                     icon: Icons.calendar_month_outlined,
                     children: <Widget>[
@@ -169,6 +196,16 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                         title: '上课时间',
                         onTap: _showSectionTimeSettings,
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '时间模板（一键套用常见作息）',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: KiroPalette.textSecondary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _SectionTimePresetRow(onApply: _applySectionTimePreset),
                       const SizedBox(height: 10),
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
@@ -183,6 +220,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                     ],
                   ),
                   _SettingsSection(
+                    key: _sectionKeys[1],
                     title: '外观',
                     icon: Icons.palette_outlined,
                     children: <Widget>[
@@ -270,6 +308,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                     ],
                   ),
                   _SettingsSection(
+                    key: _sectionKeys[2],
                     title: '导入导出',
                     icon: Icons.import_export_outlined,
                     children: <Widget>[
@@ -277,13 +316,25 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                         icon: Icons.web_asset_outlined,
                         title: '从教务系统导入',
                         onTap: () {
-                          Navigator.of(context).pop();
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const CourseImportPage(),
-                            ),
+                          final route = MaterialPageRoute<void>(
+                            builder: (_) => const CourseImportPage(),
                           );
+                          final navigator = Navigator.of(context);
+                          if (widget.fullScreen) {
+                            navigator.pushReplacement(route);
+                          } else {
+                            navigator.pop();
+                            navigator.push(route);
+                          }
                         },
+                      ),
+                      const SizedBox(height: 8),
+                      _SavedUrlManager(
+                        bookmarks: _importPreferences.savedAcademicUrlBookmarks,
+                        onAdd: () => _editSavedUrl(),
+                        onEdit: _editSavedUrl,
+                        onRemove: _removeSavedUrl,
+                        onMove: _moveSavedUrl,
                       ),
                       _ActionTile(
                         icon: Icons.folder_open_outlined,
@@ -328,6 +379,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                     ],
                   ),
                   _SettingsSection(
+                    key: _sectionKeys[3],
                     title: '高级设置',
                     icon: Icons.tune_outlined,
                     children: <Widget>[
@@ -335,7 +387,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                         controller: _urlController,
                         decoration: const InputDecoration(
                           labelText: '教务系统网址',
-                          hintText: 'https://example.edu.cn',
+                          hintText: 'jw.example.edu.cn（自动使用 HTTPS）',
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -366,6 +418,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                           _importPreferences = _importPreferences.copyWith(
                             userAgentMode: value,
                           );
+                          _hasUnsavedChanges = true;
                         }),
                       ),
                       if (_importPreferences.userAgentMode ==
@@ -387,6 +440,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                           _importPreferences = _importPreferences.copyWith(
                             keepWebViewLoginState: value,
                           );
+                          _hasUnsavedChanges = true;
                         }),
                       ),
                       SwitchListTile(
@@ -397,7 +451,13 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                           _importPreferences = _importPreferences.copyWith(
                             keepHtmlDiagnostics: value,
                           );
+                          _hasUnsavedChanges = true;
                         }),
+                      ),
+                      _ActionTile(
+                        icon: Icons.logout_rounded,
+                        title: '清除教务登录数据',
+                        onTap: _busy ? null : _clearWebViewLoginData,
                       ),
                       _ActionTile(
                         icon: Icons.content_copy_outlined,
@@ -417,12 +477,6 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                         title: '关于 KiroTime',
                         onTap: _showAboutDialog,
                       ),
-                      const SizedBox(height: 8),
-                      FilledButton.icon(
-                        onPressed: _busy ? null : _saveAdvancedSettings,
-                        icon: const Icon(Icons.save_outlined),
-                        label: const Text('保存高级设置'),
-                      ),
                     ],
                   ),
                 ],
@@ -439,15 +493,12 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: <Widget>[
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('关闭'),
-                  ),
+                  TextButton(onPressed: _requestClose, child: const Text('关闭')),
                   const SizedBox(width: 8),
                   FilledButton.icon(
-                    onPressed: _busy ? null : _saveSemester,
+                    onPressed: _busy ? null : _saveAllSettings,
                     icon: const Icon(Icons.check_rounded),
-                    label: const Text('保存设置'),
+                    label: const Text('保存更改'),
                   ),
                 ],
               ),
@@ -458,13 +509,40 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     );
   }
 
-  void _selectSemester(SemesterSettings settings) {
+  void _markDirty() {
+    if (!mounted || _suppressDirtyTracking || _hasUnsavedChanges) {
+      return;
+    }
+    setState(() => _hasUnsavedChanges = true);
+  }
+
+  void _jumpToSection(int index) {
+    final targetContext = _sectionKeys[index].currentContext;
+    if (targetContext == null) {
+      return;
+    }
+    Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+      alignment: 0.02,
+    );
+  }
+
+  Future<void> _selectSemester(SemesterSettings settings) async {
+    if (_hasUnsavedChanges && !await _confirmDiscardChanges()) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _creatingSemester = false;
       _editingSemester = settings;
-      _displayNameController.text = settings.displayName;
+      _setControllerText(_displayNameController, settings.displayName);
+      _hasUnsavedChanges = false;
     });
-    unawaited(ref.read(selectSemesterProvider)(settings));
+    await ref.read(selectSemesterProvider)(settings);
   }
 
   void _startCreateSemester() {
@@ -478,13 +556,27 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
         totalWeeks: current.totalWeeks,
         sectionCount: current.sectionCount,
       );
-      _displayNameController.clear();
+      _setControllerText(_displayNameController, '');
+      _hasUnsavedChanges = true;
     });
   }
 
-  Future<void> _saveSemester() async {
+  Future<void> _saveAllSettings() async {
+    final rawUrl = _urlController.text.trim();
+    final normalizedUrl = rawUrl.isEmpty
+        ? ''
+        : normalizeAcademicHttpsUrl(rawUrl);
+    if (normalizedUrl == null) {
+      _showMessage('请输入有效的 HTTPS 网址');
+      return;
+    }
     final settings = _editingSemester.copyWith(
       displayName: _displayNameController.text.trim(),
+    );
+    final preferences = _importPreferences.copyWith(
+      academicSystemUrl: normalizedUrl,
+      semesterApiPath: _semesterApiPathController.text.trim(),
+      customUserAgent: _customUaController.text.trim(),
     );
     setState(() {
       _busy = true;
@@ -499,9 +591,19 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
       } else {
         await ref.read(updateSelectedSemesterProvider)(settings);
       }
+      await ref.read(saveAppearanceSettingsProvider)(_appearance);
+      await ref.read(saveImportPreferencesProvider)(preferences);
       if (mounted) {
-        _showMessage('已保存学期设置');
-        Navigator.of(context).pop();
+        setState(() {
+          _editingSemester = settings;
+          _importPreferences = preferences;
+          _setControllerText(_urlController, normalizedUrl);
+          _hasUnsavedChanges = false;
+        });
+        _showMessage('已保存全部更改');
+        if (!widget.fullScreen) {
+          Navigator.of(context).pop();
+        }
       }
     } catch (error) {
       if (mounted) {
@@ -542,7 +644,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
       final next = ref.read(semesterSettingsProvider);
       setState(() {
         _editingSemester = next;
-        _displayNameController.text = next.displayName;
+        _setControllerText(_displayNameController, next.displayName);
       });
       _showMessage('已删除学期');
     } catch (error) {
@@ -566,6 +668,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     if (year != null) {
       setState(() {
         _editingSemester = _editingSemester.copyWith(schoolYearStart: year);
+        _hasUnsavedChanges = true;
       });
     }
   }
@@ -580,6 +683,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     if (semester != null) {
       setState(() {
         _editingSemester = _editingSemester.copyWith(semester: semester);
+        _hasUnsavedChanges = true;
       });
     }
   }
@@ -592,6 +696,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     if (picked != null) {
       setState(() {
         _editingSemester = _editingSemester.copyWith(semesterStart: picked);
+        _hasUnsavedChanges = true;
       });
     }
   }
@@ -606,6 +711,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     if (weeks != null) {
       setState(() {
         _editingSemester = _editingSemester.copyWith(totalWeeks: weeks);
+        _hasUnsavedChanges = true;
       });
     }
   }
@@ -620,6 +726,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     if (sections != null) {
       setState(() {
         _editingSemester = _editingSemester.copyWith(sectionCount: sections);
+        _hasUnsavedChanges = true;
       });
     }
   }
@@ -637,6 +744,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
         _editingSemester = _editingSemester.copyWith(
           sectionTimeSettings: updated,
         );
+        _hasUnsavedChanges = true;
       });
     }
   }
@@ -661,8 +769,102 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
   void _updateAppearance(TimetableAppearanceSettings settings) {
     setState(() {
       _appearance = settings;
+      _hasUnsavedChanges = true;
     });
-    unawaited(ref.read(saveAppearanceSettingsProvider)(settings));
+  }
+
+  void _applySectionTimePreset(SectionTimePreset preset) {
+    final settings = preset.build(_editingSemester.sectionCount);
+    setState(() {
+      _editingSemester = _editingSemester.copyWith(
+        sectionTimeSettings: settings,
+      );
+      _hasUnsavedChanges = true;
+    });
+    _showMessage('已套用「${preset.name}」，记得点击保存更改');
+  }
+
+  void _removeSavedUrl(SavedAcademicUrl bookmark) {
+    final next = <SavedAcademicUrl>[
+      for (final item in _importPreferences.savedAcademicUrlBookmarks)
+        if (item.url != bookmark.url) item,
+    ];
+    _saveSavedUrls(
+      next,
+      academicSystemUrl: _importPreferences.academicSystemUrl == bookmark.url
+          ? (next.isEmpty ? '' : next.first.url)
+          : null,
+    );
+  }
+
+  void _moveSavedUrl(SavedAcademicUrl bookmark, int offset) {
+    final next = <SavedAcademicUrl>[
+      ..._importPreferences.savedAcademicUrlBookmarks,
+    ];
+    final oldIndex = next.indexWhere((item) => item.url == bookmark.url);
+    final newIndex = oldIndex + offset;
+    if (oldIndex < 0 || newIndex < 0 || newIndex >= next.length) {
+      return;
+    }
+    next.insert(newIndex, next.removeAt(oldIndex));
+    _saveSavedUrls(next);
+  }
+
+  Future<void> _editSavedUrl([SavedAcademicUrl? current]) async {
+    final updatedBookmark = await showKiroDialog<SavedAcademicUrl>(
+      context: context,
+      child: _SavedUrlEditDialog(initialValue: current),
+    );
+    if (updatedBookmark == null) {
+      return;
+    }
+    final normalizedBookmark = ImportPreferences.defaults()
+        .copyWith(
+          savedAcademicUrlBookmarks: <SavedAcademicUrl>[updatedBookmark],
+        )
+        .savedAcademicUrlBookmarks
+        .single;
+    final next = <SavedAcademicUrl>[
+      ..._importPreferences.savedAcademicUrlBookmarks,
+    ];
+    final duplicateIndex = next.indexWhere(
+      (item) => item.url == normalizedBookmark.url && item.url != current?.url,
+    );
+    if (duplicateIndex >= 0) {
+      _showMessage('该网址已在常用列表');
+      return;
+    }
+    if (current == null) {
+      next.add(normalizedBookmark);
+    } else {
+      final index = next.indexWhere((item) => item.url == current.url);
+      if (index >= 0) {
+        next[index] = normalizedBookmark;
+      }
+    }
+    _saveSavedUrls(
+      next,
+      academicSystemUrl:
+          current != null && _importPreferences.academicSystemUrl == current.url
+          ? normalizedBookmark.url
+          : (_importPreferences.academicSystemUrl.isEmpty
+                ? normalizedBookmark.url
+                : null),
+    );
+  }
+
+  void _saveSavedUrls(
+    List<SavedAcademicUrl> bookmarks, {
+    String? academicSystemUrl,
+  }) {
+    final updated = _importPreferences.copyWith(
+      savedAcademicUrlBookmarks: bookmarks,
+      academicSystemUrl: academicSystemUrl,
+    );
+    setState(() {
+      _importPreferences = updated;
+      _hasUnsavedChanges = true;
+    });
   }
 
   Future<void> _exportJson(TimetableExportScope scope) async {
@@ -856,7 +1058,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
       final next = ref.read(semesterSettingsProvider);
       setState(() {
         _editingSemester = next;
-        _displayNameController.text = next.displayName;
+        _setControllerText(_displayNameController, next.displayName);
       });
       _showMessage('已恢复为空白课表');
     } catch (error) {
@@ -870,28 +1072,59 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     }
   }
 
-  Future<void> _saveAdvancedSettings() async {
-    final preferences = _importPreferences.copyWith(
-      academicSystemUrl: _urlController.text.trim(),
-      semesterApiPath: _semesterApiPathController.text.trim(),
-      customUserAgent: _customUaController.text.trim(),
+  Future<void> _clearWebViewLoginData() async {
+    final confirmed = await showKiroDialog<bool>(
+      context: context,
+      child: const _ConfirmDialog(
+        title: '清除教务登录数据',
+        message: '将清除所有教务系统 WebView 的 Cookie、缓存和本地网页数据，并退出已登录账号。',
+        confirmLabel: '清除',
+        destructive: true,
+      ),
     );
-    setState(() {
-      _busy = true;
-      _importPreferences = preferences;
-    });
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    setState(() => _busy = true);
     try {
-      await ref.read(saveImportPreferencesProvider)(preferences);
-      _showMessage('已保存高级设置');
+      await ref.read(clearWebViewLoginDataProvider)();
+      _showMessage('已清除教务登录数据');
     } catch (error) {
-      _showMessage('保存失败：$error');
+      _showMessage('清除失败：$error');
     } finally {
       if (mounted) {
-        setState(() {
-          _busy = false;
-        });
+        setState(() => _busy = false);
       }
     }
+  }
+
+  Future<bool> _confirmDiscardChanges() async {
+    final result = await showKiroDialog<bool>(
+      context: context,
+      child: const _ConfirmDialog(
+        title: '放弃未保存的更改？',
+        message: '当前设置尚未保存，继续将丢弃这些更改。',
+        confirmLabel: '放弃更改',
+        destructive: true,
+      ),
+    );
+    return result == true;
+  }
+
+  Future<void> _requestClose() async {
+    if (_hasUnsavedChanges && !await _confirmDiscardChanges()) {
+      return;
+    }
+    if (mounted) {
+      setState(() => _hasUnsavedChanges = false);
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _setControllerText(TextEditingController controller, String value) {
+    _suppressDirtyTracking = true;
+    controller.text = value;
+    _suppressDirtyTracking = false;
   }
 
   Future<void> _showAboutDialog() {
@@ -1046,8 +1279,253 @@ class _SemesterSwitchCard extends StatelessWidget {
   }
 }
 
+class _SavedUrlManager extends StatelessWidget {
+  const _SavedUrlManager({
+    required this.bookmarks,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onRemove,
+    required this.onMove,
+  });
+
+  final List<SavedAcademicUrl> bookmarks;
+  final VoidCallback onAdd;
+  final ValueChanged<SavedAcademicUrl> onEdit;
+  final ValueChanged<SavedAcademicUrl> onRemove;
+  final void Function(SavedAcademicUrl bookmark, int offset) onMove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                '常用教务网址',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: KiroPalette.textSecondary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: '添加网址',
+              onPressed: onAdd,
+              icon: const Icon(Icons.add_link_rounded),
+            ),
+          ],
+        ),
+        if (bookmarks.isEmpty)
+          Text(
+            '还没有固定的网址',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: KiroPalette.textTertiary),
+          ),
+        const SizedBox(height: 4),
+        for (var index = 0; index < bookmarks.length; index++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.push_pin_outlined,
+                  size: 16,
+                  color: KiroPalette.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        bookmarks[index].displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        bookmarks[index].url,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: '上移',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: index == 0
+                      ? null
+                      : () => onMove(bookmarks[index], -1),
+                  icon: const Icon(Icons.arrow_upward_rounded, size: 18),
+                ),
+                IconButton(
+                  tooltip: '下移',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: index == bookmarks.length - 1
+                      ? null
+                      : () => onMove(bookmarks[index], 1),
+                  icon: const Icon(Icons.arrow_downward_rounded, size: 18),
+                ),
+                IconButton(
+                  tooltip: '编辑',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onEdit(bookmarks[index]),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                ),
+                IconButton(
+                  tooltip: '移除',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onRemove(bookmarks[index]),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SavedUrlEditDialog extends StatefulWidget {
+  const _SavedUrlEditDialog({this.initialValue});
+
+  final SavedAcademicUrl? initialValue;
+
+  @override
+  State<_SavedUrlEditDialog> createState() => _SavedUrlEditDialogState();
+}
+
+class _SavedUrlEditDialogState extends State<_SavedUrlEditDialog> {
+  late final TextEditingController _nameController = TextEditingController(
+    text: widget.initialValue?.name ?? '',
+  );
+  late final TextEditingController _urlController = TextEditingController(
+    text: widget.initialValue?.url ?? '',
+  );
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SimpleDialogFrame(
+      title: widget.initialValue == null ? '添加常用网址' : '编辑常用网址',
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('保存')),
+      ],
+      children: <Widget>[
+        TextField(
+          controller: _nameController,
+          decoration: const InputDecoration(
+            labelText: '名称',
+            hintText: '例如 本科生教务',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _urlController,
+          keyboardType: TextInputType.url,
+          decoration: InputDecoration(
+            labelText: '网址',
+            hintText: 'jw.example.edu.cn',
+            border: const OutlineInputBorder(),
+            errorText: _errorText,
+          ),
+          onSubmitted: (_) => _submit(),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final url = normalizeAcademicHttpsUrl(_urlController.text);
+    if (url == null) {
+      setState(() => _errorText = '请输入有效的 HTTPS 网址');
+      return;
+    }
+    Navigator.of(
+      context,
+    ).pop(SavedAcademicUrl(name: _nameController.text.trim(), url: url));
+  }
+}
+
+class _SectionTimePresetRow extends StatelessWidget {
+  const _SectionTimePresetRow({required this.onApply});
+
+  final ValueChanged<SectionTimePreset> onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: SectionTimePresets.catalog.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final preset = SectionTimePresets.catalog[index];
+          return GlassChipButton(
+            label: preset.name,
+            icon: Icons.schedule_rounded,
+            onPressed: () => onApply(preset),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SettingsSectionNavigation extends StatelessWidget {
+  const _SettingsSectionNavigation({required this.onSelected});
+
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    const items = <(String, IconData)>[
+      ('课表', Icons.calendar_month_outlined),
+      ('外观', Icons.palette_outlined),
+      ('导入导出', Icons.import_export_outlined),
+      ('高级', Icons.tune_outlined),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: <Widget>[
+          for (var index = 0; index < items.length; index++) ...<Widget>[
+            if (index > 0) const SizedBox(width: 8),
+            GlassChipButton(
+              label: items[index].$1,
+              icon: items[index].$2,
+              onPressed: () => onSelected(index),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _SettingsSection extends StatelessWidget {
   const _SettingsSection({
+    super.key,
     required this.title,
     required this.icon,
     required this.children,
@@ -1062,10 +1540,11 @@ class _SettingsSection extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Material(
-        color: const Color(0xFFF8FAFA),
+        color: Colors.white.withValues(alpha: 0.6),
+        elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: const BorderSide(color: Color(0xFFE4EAEC)),
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: KiroPalette.glassBorder),
         ),
         clipBehavior: Clip.antiAlias,
         child: Padding(
@@ -1075,7 +1554,7 @@ class _SettingsSection extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Icon(icon, size: 20, color: const Color(0xFF266A60)),
+                  Icon(icon, size: 20, color: KiroPalette.primary),
                   const SizedBox(width: 8),
                   Text(
                     title,
@@ -2303,8 +2782,8 @@ class _AboutKiroTimeDialog extends StatelessWidget {
       ],
       children: const <Widget>[
         _PreviewLine(label: '应用名称', value: 'KiroTime'),
-        _PreviewLine(label: '版本', value: '0.1.3'),
-        _PreviewLine(label: '构建号', value: '4'),
+        _PreviewLine(label: '版本', value: '0.2.0'),
+        _PreviewLine(label: '构建号', value: '2005'),
         _PreviewLine(label: '包名', value: 'com.kirotime.app'),
         SizedBox(height: 8),
         Text('KiroTime 是本地优先的轻量课程表。课程、学期和备份数据默认保存在本机。'),

@@ -24,15 +24,15 @@ void main() {
   });
 
   test('import preferences expose effective user agent', () {
-    final mobile = ImportPreferences.defaults();
-    final desktop = mobile.copyWith(userAgentMode: UserAgentMode.desktop);
-    final custom = mobile.copyWith(
+    final desktop = ImportPreferences.defaults();
+    final mobile = desktop.copyWith(userAgentMode: UserAgentMode.mobile);
+    final custom = desktop.copyWith(
       userAgentMode: UserAgentMode.custom,
       customUserAgent: 'Custom UA',
     );
 
-    expect(mobile.effectiveUserAgent, contains('Mobile'));
     expect(desktop.effectiveUserAgent, contains('Windows NT'));
+    expect(mobile.effectiveUserAgent, contains('Mobile'));
     expect(custom.effectiveUserAgent, 'Custom UA');
     expect(
       ImportPreferences.fromJson(custom.toJson()).effectiveUserAgent,
@@ -40,12 +40,74 @@ void main() {
     );
   });
 
-  test('import preferences default to private import behavior', () {
+  test('import preferences preserve pinned academic URLs', () {
+    final preferences = ImportPreferences.defaults().copyWith(
+      academicSystemUrl: 'https://jw.example.edu.cn',
+      savedAcademicUrls: const <String>[
+        'https://jw.example.edu.cn',
+        'https://portal.example.edu.cn',
+      ],
+    );
+
+    final decoded = ImportPreferences.fromJson(preferences.toJson());
+
+    expect(decoded.academicSystemUrl, 'https://jw.example.edu.cn');
+    expect(decoded.savedAcademicUrls, <String>[
+      'https://jw.example.edu.cn',
+      'https://portal.example.edu.cn',
+    ]);
+  });
+
+  test(
+    'import preferences migrate legacy urls and preserve bookmark names',
+    () {
+      final decoded = ImportPreferences.fromJson(<String, dynamic>{
+        'savedAcademicUrls': <Object>[
+          'https://jw.example.edu.cn/path#fragment',
+          <String, dynamic>{
+            'name': '研究生教务',
+            'url': 'https://graduate.example.edu.cn/',
+          },
+          'ftp://invalid.example.edu.cn',
+          'https://jw.example.edu.cn/path',
+        ],
+      });
+
+      expect(decoded.savedAcademicUrls, <String>[
+        'https://jw.example.edu.cn/path',
+        'https://graduate.example.edu.cn/',
+      ]);
+      expect(
+        decoded.savedAcademicUrlBookmarks.map((item) => item.displayName),
+        <String>['jw.example.edu.cn', '研究生教务'],
+      );
+
+      final roundTrip = ImportPreferences.fromJson(decoded.toJson());
+      expect(roundTrip.savedAcademicUrlBookmarks[1].name, '研究生教务');
+    },
+  );
+
+  test('import preferences default to desktop login-preserving behavior', () {
     final defaults = ImportPreferences.defaults();
 
     expect(defaults.academicSystemUrl, isEmpty);
+    expect(defaults.savedAcademicUrls, isEmpty);
     expect(defaults.semesterApiPath, isEmpty);
-    expect(defaults.keepWebViewLoginState, isFalse);
+    expect(defaults.userAgentMode, UserAgentMode.desktop);
+    expect(defaults.keepWebViewLoginState, isTrue);
     expect(defaults.keepHtmlDiagnostics, isFalse);
+  });
+
+  test('academic URLs normalize bare hosts to HTTPS and reject HTTP', () {
+    expect(
+      normalizeAcademicHttpsUrl('jw.school.edu.cn/login#session'),
+      'https://jw.school.edu.cn/login',
+    );
+    expect(
+      normalizeAcademicHttpsUrl('https://jw.school.edu.cn/login'),
+      'https://jw.school.edu.cn/login',
+    );
+    expect(normalizeAcademicHttpsUrl('http://jw.school.edu.cn'), isNull);
+    expect(normalizeAcademicHttpsUrl('ftp://jw.school.edu.cn'), isNull);
   });
 }

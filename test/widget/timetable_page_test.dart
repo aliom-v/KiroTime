@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kiro_time/features/import_export/application/import_export_providers.dart';
 import 'package:kiro_time/features/import_export/data/android_timetable_file_gateway.dart';
 import 'package:kiro_time/features/import_export/domain/timetable_json_codec.dart';
+import 'package:kiro_time/features/import/application/webview_login_data_provider.dart';
+import 'package:kiro_time/features/settings/application/settings_providers.dart';
+import 'package:kiro_time/features/settings/domain/import_preferences.dart';
 import 'package:kiro_time/features/timetable/application/timetable_providers.dart';
 import 'package:kiro_time/features/courses/data/course_meta.dart';
 import 'package:kiro_time/features/courses/data/course_schedule.dart';
@@ -187,13 +190,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('校园课程表'), findsOneWidget);
+    expect(find.text('校园课程表'), findsNothing);
     expect(find.text('第16周'), findsOneWidget);
-    expect(find.text('2025-2026第二学期'), findsOneWidget);
     expect(find.text('08:10'), findsOneWidget);
     expect(find.text('08:55'), findsOneWidget);
     expect(find.byTooltip('导入课表'), findsOneWidget);
     expect(find.byTooltip('课表设置'), findsOneWidget);
+    expect(find.byTooltip('新增课程'), findsOneWidget);
     expect(find.text('今日'), findsNothing);
     expect(find.text('课表'), findsNothing);
     expect(find.text('导入'), findsNothing);
@@ -440,9 +443,11 @@ void main() {
 
     expect(find.text('设置'), findsOneWidget);
     expect(find.text('课表设置'), findsWidgets);
-    expect(find.text('外观'), findsOneWidget);
-    expect(find.text('导入导出'), findsOneWidget);
+    expect(find.text('外观'), findsWidgets);
+    expect(find.text('导入导出'), findsWidgets);
     expect(find.text('高级设置'), findsOneWidget);
+    expect(find.text('保存更改'), findsOneWidget);
+    expect(find.text('保存高级设置'), findsNothing);
     expect(find.text('上课时间'), findsOneWidget);
     expect(find.text('从本地 JSON 导入'), findsOneWidget);
     expect(find.text('从剪贴板 JSON 导入'), findsOneWidget);
@@ -496,11 +501,171 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('版本'), findsOneWidget);
-    expect(find.text('0.1.3'), findsOneWidget);
+    expect(find.text('0.2.0'), findsOneWidget);
+    expect(find.text('2005'), findsOneWidget);
     expect(find.text('构建号'), findsOneWidget);
-    expect(find.text('4'), findsWidgets);
     expect(find.text('包名'), findsOneWidget);
     expect(find.text('com.kirotime.app'), findsOneWidget);
+  });
+
+  testWidgets('settings adds a named academic URL bookmark', (tester) async {
+    ImportPreferences? savedPreferences;
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          timetablePlacementsProvider.overrideWith(
+            (ref) async => <TimetableCoursePlacement>[],
+          ),
+          importPreferencesProvider.overrideWith(
+            (ref) => ImportPreferences.defaults(),
+          ),
+          saveImportPreferencesProvider.overrideWithValue((preferences) async {
+            savedPreferences = preferences;
+          }),
+          saveAppearanceSettingsProvider.overrideWithValue((settings) async {}),
+          updateSelectedSemesterProvider.overrideWithValue((settings) async {}),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF157A6E),
+            ),
+            useMaterial3: true,
+          ),
+          home: const TimetablePage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('课表设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入导出').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('添加网址'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.bySemanticsLabel('名称'), '本科生教务');
+    await tester.enterText(
+      find.bySemanticsLabel('网址'),
+      'https://jw.example.edu.cn/path#login',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+
+    expect(savedPreferences, isNull);
+    expect(find.text('本科生教务'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('保存更改'));
+    await tester.tap(find.text('保存更改'));
+    await tester.pumpAndSettle();
+
+    expect(savedPreferences, isNotNull);
+    expect(savedPreferences!.savedAcademicUrlBookmarks.single.name, '本科生教务');
+    expect(
+      savedPreferences!.savedAcademicUrlBookmarks.single.url,
+      'https://jw.example.edu.cn/path',
+    );
+    expect(find.text('本科生教务'), findsOneWidget);
+  });
+
+  testWidgets('settings normalizes bare academic host on unified save', (
+    tester,
+  ) async {
+    ImportPreferences? savedPreferences;
+    var semesterSaveCalls = 0;
+    var appearanceSaveCalls = 0;
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          timetablePlacementsProvider.overrideWith(
+            (ref) async => <TimetableCoursePlacement>[],
+          ),
+          importPreferencesProvider.overrideWith(
+            (ref) => ImportPreferences.defaults(),
+          ),
+          saveImportPreferencesProvider.overrideWithValue((preferences) async {
+            savedPreferences = preferences;
+          }),
+          saveAppearanceSettingsProvider.overrideWithValue((settings) async {
+            appearanceSaveCalls += 1;
+          }),
+          updateSelectedSemesterProvider.overrideWithValue((settings) async {
+            semesterSaveCalls += 1;
+          }),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(useMaterial3: true),
+          home: const TimetablePage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('课表设置'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.bySemanticsLabel('教务系统网址'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.bySemanticsLabel('教务系统网址'),
+      'jw.example.edu.cn/login#session',
+    );
+    await tester.ensureVisible(find.text('保存更改'));
+    await tester.tap(find.text('保存更改'));
+    await tester.pumpAndSettle();
+
+    expect(
+      savedPreferences?.academicSystemUrl,
+      'https://jw.example.edu.cn/login',
+    );
+    expect(savedPreferences?.userAgentMode, UserAgentMode.desktop);
+    expect(savedPreferences?.keepWebViewLoginState, isTrue);
+    expect(semesterSaveCalls, 1);
+    expect(appearanceSaveCalls, 1);
+  });
+
+  testWidgets('settings clears WebView login data after confirmation', (
+    tester,
+  ) async {
+    var clearCalls = 0;
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          timetablePlacementsProvider.overrideWith(
+            (ref) async => <TimetableCoursePlacement>[],
+          ),
+          clearWebViewLoginDataProvider.overrideWithValue(() async {
+            clearCalls += 1;
+          }),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(useMaterial3: true),
+          home: const TimetablePage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('课表设置'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('清除教务登录数据'));
+    await tester.tap(find.text('清除教务登录数据'));
+    await tester.pumpAndSettle();
+
+    expect(clearCalls, 0);
+    await tester.tap(find.widgetWithText(FilledButton, '清除'));
+    await tester.pumpAndSettle();
+
+    expect(clearCalls, 1);
+    expect(find.text('已清除教务登录数据'), findsOneWidget);
   });
 
   testWidgets('about dialog opens privacy notice', (tester) async {
@@ -941,9 +1106,11 @@ void main() {
     await tester.tap(find.text('确定'));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('保存设置'));
+    await tester.ensureVisible(find.text('保存更改'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('保存设置'));
+    await tester.tap(find.text('保存更改'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
 
     final expectedWeek = initialSemester
@@ -990,9 +1157,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('确定'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('保存设置'));
+    await tester.ensureVisible(find.text('保存更改'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('保存设置'));
+    await tester.tap(find.text('保存更改'));
     await tester.pumpAndSettle();
 
     expect(find.text('2024-2025第一学期'), findsWidgets);
@@ -1713,7 +1880,7 @@ void main() {
     await tester.tap(find.byTooltip('课表设置'));
     await tester.pumpAndSettle();
     await tester.enterText(find.bySemanticsLabel('学期显示名称'), '大三上');
-    await tester.tap(find.text('保存设置'));
+    await tester.tap(find.text('保存更改'));
     await tester.pumpAndSettle();
 
     expect(savedSettings, isNotNull);

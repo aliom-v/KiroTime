@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../settings/application/settings_providers.dart';
+import '../../settings/domain/import_preferences.dart';
+import '../../../ui/glass.dart';
 import '../../timetable/application/timetable_providers.dart';
 import '../application/import_persistence_provider.dart';
 import '../domain/academic_timetable_api_probe.dart';
@@ -97,11 +99,13 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
 
   Future<void> _loadUrl() async {
     final input = _urlController.text.trim();
-    final uri = Uri.tryParse(input);
-    if (uri == null || !uri.hasScheme) {
-      _showMessage('请输入有效网址');
+    final normalizedUrl = normalizeAcademicHttpsUrl(input);
+    if (normalizedUrl == null) {
+      _showMessage('请输入有效的 HTTPS 网址');
       return;
     }
+    _urlController.text = normalizedUrl;
+    final uri = Uri.parse(normalizedUrl);
 
     await _semesterApiChannelReady;
     final channelError = _semesterApiChannelError;
@@ -112,15 +116,91 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     await _controller.loadRequest(uri);
   }
 
+  Widget _buildUrlPresetChips() {
+    final prefs = ref.watch(importPreferencesProvider);
+    final entries = <String, String>{};
+    for (final bookmark in prefs.savedAcademicUrlBookmarks) {
+      entries.putIfAbsent(bookmark.url, () => bookmark.displayName);
+    }
+    final list = entries.entries.toList(growable: false);
+    if (list.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return SizedBox(
+      height: 34,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: list.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final entry = list[index];
+          return GlassChipButton(
+            label: entry.value,
+            selected: _urlController.text.trim() == entry.key,
+            onPressed: _isLoading ? null : () => _applyPresetUrl(entry.key),
+          );
+        },
+      ),
+    );
+  }
+
+  String _shortHost(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty) {
+      return url;
+    }
+    return uri.host;
+  }
+
+  Future<void> _applyPresetUrl(String url) async {
+    _urlController.text = url;
+    await _loadUrl();
+  }
+
+  Future<void> _pinCurrentUrl() async {
+    final url = _urlController.text.trim();
+    if (url.isEmpty) {
+      _showMessage('请先输入或打开一个网址');
+      return;
+    }
+    final normalizedUrl = normalizeAcademicHttpsUrl(url);
+    if (normalizedUrl == null) {
+      _showMessage('仅支持 HTTPS 网址');
+      return;
+    }
+    final prefs = ref.read(importPreferencesProvider);
+    final normalizedBookmark = ImportPreferences.defaults()
+        .copyWith(
+          savedAcademicUrlBookmarks: <SavedAcademicUrl>[
+            SavedAcademicUrl(
+              name: _shortHost(normalizedUrl),
+              url: normalizedUrl,
+            ),
+          ],
+        )
+        .savedAcademicUrlBookmarks
+        .single;
+    if (prefs.savedAcademicUrls.contains(normalizedBookmark.url)) {
+      _showMessage('该网址已在常用列表');
+      return;
+    }
+    await ref.read(saveImportPreferencesProvider)(
+      prefs.copyWith(
+        savedAcademicUrlBookmarks: <SavedAcademicUrl>[
+          ...prefs.savedAcademicUrlBookmarks,
+          normalizedBookmark,
+        ],
+        academicSystemUrl: normalizedBookmark.url,
+      ),
+    );
+    _showMessage('已固定到常用网址');
+  }
+
   Future<void> _applyImportPreferences() async {
     await ref.read(settingsBootstrapProvider.future);
     final preferences = ref.read(importPreferencesProvider);
     _urlController.text = preferences.academicSystemUrl;
     await _controller.setUserAgent(preferences.effectiveUserAgent);
-    if (!preferences.keepWebViewLoginState) {
-      await _controller.clearCache();
-      await _controller.clearLocalStorage();
-    }
   }
 
   Future<void> _importCurrentPage() async {
@@ -136,12 +216,12 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
         return;
       }
 
-      final confirmed = await _showImportPreview(prepared);
-      if (confirmed != true) {
+      final decision = await _showImportPreview(prepared);
+      if (decision == null) {
         return;
       }
 
-      await _persistPreparedImport(prepared);
+      await _persistPreparedImport(prepared, decision: decision);
     } catch (error) {
       _showMessage('导入失败：$error');
     } finally {
@@ -180,9 +260,9 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
         return;
       }
 
-      final confirmed = await _showImportPreview(result);
-      if (confirmed == true) {
-        await _persistPreparedImport(result);
+      final decision = await _showImportPreview(result);
+      if (decision != null) {
+        await _persistPreparedImport(result, decision: decision);
       }
     } catch (error) {
       _showMessage('探测失败：$error');
@@ -332,12 +412,18 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     }
   }
 
-  Future<void> _persistPreparedImport(_PreparedImport prepared) async {
+  Future<void> _persistPreparedImport(
+    _PreparedImport prepared, {
+    required ImportPreviewResult decision,
+  }) async {
     final importedTimetable = prepared.timetable;
     final persistImportedTimetable = ref.read(persistImportedTimetableProvider);
     final result = await persistImportedTimetable(
       timetable: importedTimetable,
       detectedApiPath: prepared.path,
+      acceptedSectionTimes: decision.applySectionTimes
+          ? importedTimetable.sectionTimeEvidence?.settings
+          : null,
     );
 
     if (!mounted) {
@@ -356,14 +442,15 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     );
   }
 
-  Future<bool?> _showImportPreview(_PreparedImport prepared) {
+  Future<ImportPreviewResult?> _showImportPreview(_PreparedImport prepared) {
     _lastPreviewSummary = prepared.summary;
-    return showDialog<bool>(
+    return showDialog<ImportPreviewResult>(
       context: context,
       builder: (context) => ImportPreviewDialog(
         source: prepared.source,
         path: prepared.path,
         summary: prepared.summary,
+        sectionTimeEvidence: prepared.timetable.sectionTimeEvidence,
       ),
     );
   }
@@ -701,94 +788,111 @@ $styleSamples
       body: Column(
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                TextField(
-                  controller: _urlController,
-                  enabled: !_isLoading,
-                  keyboardType: TextInputType.url,
-                  textInputAction: TextInputAction.go,
-                  decoration: const InputDecoration(
-                    labelText: '教务系统网址',
-                    hintText: 'https://example.edu.cn',
-                    border: OutlineInputBorder(),
-                  ),
-                  onSubmitted: _isLoading ? null : (_) => _loadUrl(),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: <Widget>[
-                    FilledButton.icon(
-                      onPressed: _isLoading ? null : _loadUrl,
-                      icon: const Icon(Icons.open_in_browser_outlined),
-                      label: const Text('打开页面'),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: GlassPanel(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  TextField(
+                    controller: _urlController,
+                    enabled: !_isLoading,
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.go,
+                    decoration: const InputDecoration(
+                      labelText: '教务系统网址',
+                      hintText: 'https://example.edu.cn',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      onPressed: _isLoading ? null : _importCurrentPage,
-                      icon: _isLoading
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.file_download_outlined),
-                      label: const Text('导入当前页'),
+                    onSubmitted: _isLoading ? null : (_) => _loadUrl(),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildUrlPresetChips(),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: <Widget>[
+                      FilledButton.icon(
+                        onPressed: _isLoading ? null : _loadUrl,
+                        icon: const Icon(Icons.open_in_browser_outlined),
+                        label: const Text('打开页面'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _isLoading ? null : _importCurrentPage,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.file_download_outlined),
+                        label: const Text('导入当前页'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: <Widget>[
+                      OutlinedButton.icon(
+                        onPressed: _isLoading ? null : _probeSemesterApi,
+                        icon: const Icon(Icons.travel_explore_outlined),
+                        label: const Text('自动探测接口'),
+                      ),
+                      TextButton.icon(
+                        onPressed: _isLoading ? null : _pinCurrentUrl,
+                        icon: const Icon(Icons.push_pin_outlined, size: 18),
+                        label: const Text('固定当前网址'),
+                      ),
+                    ],
+                  ),
+                  if (_currentUrl.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 8),
+                    Text(
+                      _currentUrl,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: _isLoading ? null : _probeSemesterApi,
-                    icon: const Icon(Icons.travel_explore_outlined),
-                    label: const Text('自动探测接口'),
-                  ),
-                ),
-                if (_currentUrl.isNotEmpty) ...<Widget>[
-                  const SizedBox(height: 8),
-                  Text(
-                    _currentUrl,
-                    style: Theme.of(context).textTheme.bodySmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-                if (_lastImportedScheduleCount != null) ...<Widget>[
-                  const SizedBox(height: 12),
-                  Material(
-                    color: Theme.of(context).colorScheme.secondaryContainer,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                      child: Row(
-                        children: <Widget>[
-                          Icon(
-                            Icons.check_circle_outline,
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onSecondaryContainer,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '已导入 $_lastImportedScheduleCount 条上课安排',
-                              style: Theme.of(context).textTheme.bodyMedium,
+                  if (_lastImportedScheduleCount != null) ...<Widget>[
+                    const SizedBox(height: 12),
+                    Material(
+                      color: Theme.of(context).colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        child: Row(
+                          children: <Widget>[
+                            Icon(
+                              Icons.check_circle_outline,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSecondaryContainer,
                             ),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('返回课表'),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '已导入 $_lastImportedScheduleCount 条上课安排',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('返回课表'),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           const Divider(height: 1),

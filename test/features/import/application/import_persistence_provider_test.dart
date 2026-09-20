@@ -6,6 +6,7 @@ import 'package:kiro_time/features/settings/application/settings_providers.dart'
 import 'package:kiro_time/features/settings/domain/import_preferences.dart';
 import 'package:kiro_time/features/timetable/application/timetable_providers.dart';
 import 'package:kiro_time/features/timetable/domain/semester_settings.dart';
+import 'package:kiro_time/features/timetable/domain/section_time_settings.dart';
 
 void main() {
   test(
@@ -77,6 +78,31 @@ void main() {
 
     expect(events, <String>['replace', 'metadata', 'path', 'refresh']);
     expect(result.warnings, hasLength(2));
+  });
+
+  test('applies accepted section times to the captured semester', () async {
+    final events = <String>[];
+    final container = _buildContainer(
+      events: events,
+      replace: ({required timetable, required semesterId}) async {
+        events.add('replace:$semesterId');
+      },
+    );
+    addTearDown(container.dispose);
+
+    await container.read(persistImportedTimetableProvider)(
+      timetable: _timetable(),
+      acceptedSectionTimes: SectionTimeSettings(const <SectionTime>[
+        SectionTime(section: 1, startMinutes: 480, endMinutes: 525),
+      ]),
+    );
+
+    expect(events, <String>[
+      'replace:2026-1',
+      'metadata:2026-1:2026-08-31',
+      'times:2026-1:08:00',
+      'refresh',
+    ]);
   });
 
   test(
@@ -202,6 +228,14 @@ ProviderContainer _buildContainer({
         if (failMetadata) {
           throw StateError('metadata failed');
         }
+      }),
+      applyImportedSectionTimesToSemesterProvider.overrideWithValue(({
+        required String semesterId,
+        required SectionTimeSettings sectionTimeSettings,
+      }) async {
+        events.add(
+          'times:$semesterId:${sectionTimeSettings.sections.first.startText}',
+        );
       }),
       saveImportPreferencesProvider.overrideWithValue((preferences) async {
         events.add(failPath ? 'path' : 'path:${preferences.semesterApiPath}');
