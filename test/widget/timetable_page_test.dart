@@ -498,9 +498,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('版本'), findsOneWidget);
-    expect(find.text('0.1.3'), findsOneWidget);
+    expect(find.text('0.2.0'), findsOneWidget);
+    expect(find.text('2005'), findsOneWidget);
     expect(find.text('构建号'), findsOneWidget);
-    expect(find.text('4'), findsWidgets);
     expect(find.text('包名'), findsOneWidget);
     expect(find.text('com.kirotime.app'), findsOneWidget);
   });

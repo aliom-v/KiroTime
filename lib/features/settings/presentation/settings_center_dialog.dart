@@ -2699,8 +2699,8 @@ class _AboutKiroTimeDialog extends StatelessWidget {
       ],
       children: const <Widget>[
         _PreviewLine(label: '应用名称', value: 'KiroTime'),
-        _PreviewLine(label: '版本', value: '0.1.3'),
-        _PreviewLine(label: '构建号', value: '4'),
+        _PreviewLine(label: '版本', value: '0.2.0'),
+        _PreviewLine(label: '构建号', value: '2005'),
         _PreviewLine(label: '包名', value: 'com.kirotime.app'),
         SizedBox(height: 8),
         Text('KiroTime 是本地优先的轻量课程表。课程、学期和备份数据默认保存在本机。'),
