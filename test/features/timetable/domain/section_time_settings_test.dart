@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kiro_time/features/timetable/domain/section_time_presets.dart';
 import 'package:kiro_time/features/timetable/domain/section_time_settings.dart';
 
 void main() {
@@ -124,6 +125,31 @@ void main() {
       expect(SectionTimeSettings.formatMinutes(24 * 60 + 15), '00:15');
       expect(SectionTimeSettings.parseClockText('25:99'), isNull);
       expect(SectionTimeSettings.parseClockText('abc'), isNull);
+    });
+  });
+
+  group('SectionTimePresets', () {
+    test(
+      'builds a complete 8:00 schedule for the configured section count',
+      () {
+        final settings = SectionTimePresets.catalog.first.build(10);
+
+        expect(settings.sections, hasLength(10));
+        expect(settings.section(1).timeRangeText, '08:00-08:45');
+        expect(settings.section(3).timeRangeText, '10:00-10:45');
+        expect(settings.section(5).timeRangeText, '14:00-14:45');
+        expect(settings.section(9).timeRangeText, '19:00-19:45');
+      },
+    );
+
+    test('does not generate sections beyond the semester configuration', () {
+      final settings = SectionTimePresets.catalog.last.build(8);
+
+      expect(settings.sections, hasLength(8));
+      expect(
+        settings.sections.map((section) => section.section),
+        orderedEquals(<int>[1, 2, 3, 4, 5, 6, 7, 8]),
+      );
     });
   });
 }

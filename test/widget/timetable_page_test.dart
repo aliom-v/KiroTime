@@ -187,13 +187,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('校园课程表'), findsOneWidget);
+    expect(find.text('校园课程表'), findsNothing);
     expect(find.text('第16周'), findsOneWidget);
-    expect(find.text('2025-2026第二学期'), findsOneWidget);
     expect(find.text('08:10'), findsOneWidget);
     expect(find.text('08:55'), findsOneWidget);
     expect(find.byTooltip('导入课表'), findsOneWidget);
     expect(find.byTooltip('课表设置'), findsOneWidget);
+    expect(find.byTooltip('新增课程'), findsOneWidget);
     expect(find.text('今日'), findsNothing);
     expect(find.text('课表'), findsNothing);
     expect(find.text('导入'), findsNothing);

@@ -8,6 +8,7 @@ class ImportPreferences {
     required this.customUserAgent,
     required this.keepWebViewLoginState,
     required this.keepHtmlDiagnostics,
+    this.savedAcademicUrls = const <String>[],
   });
 
   static const String mobileUserAgent =
@@ -17,6 +18,9 @@ class ImportPreferences {
   static const String desktopUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
+  /// 用户固定的常用网址（导入页快捷选择 + 设置中管理）。
+  final List<String> savedAcademicUrls;
 
   final String academicSystemUrl;
   final String semesterApiPath;
@@ -55,6 +59,12 @@ class ImportPreferences {
         json['academicSystemUrl'],
         fallback.academicSystemUrl,
       ),
+      savedAcademicUrls: json['savedAcademicUrls'] is List
+          ? (json['savedAcademicUrls'] as List)
+                .map((item) => item?.toString() ?? '')
+                .where((item) => item.trim().isNotEmpty)
+                .toList(growable: false)
+          : fallback.savedAcademicUrls,
       semesterApiPath: _stringValue(
         json['semesterApiPath'],
         fallback.semesterApiPath,
@@ -82,6 +92,7 @@ class ImportPreferences {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'academicSystemUrl': academicSystemUrl,
+      'savedAcademicUrls': savedAcademicUrls,
       'semesterApiPath': semesterApiPath,
       'userAgentMode': userAgentMode.name,
       'customUserAgent': customUserAgent,
@@ -92,6 +103,7 @@ class ImportPreferences {
 
   ImportPreferences copyWith({
     String? academicSystemUrl,
+    List<String>? savedAcademicUrls,
     String? semesterApiPath,
     UserAgentMode? userAgentMode,
     String? customUserAgent,
@@ -100,6 +112,7 @@ class ImportPreferences {
   }) {
     return ImportPreferences(
       academicSystemUrl: academicSystemUrl ?? this.academicSystemUrl,
+      savedAcademicUrls: savedAcademicUrls ?? this.savedAcademicUrls,
       semesterApiPath: semesterApiPath ?? this.semesterApiPath,
       userAgentMode: userAgentMode ?? this.userAgentMode,
       customUserAgent: customUserAgent ?? this.customUserAgent,

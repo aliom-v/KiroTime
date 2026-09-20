@@ -14,9 +14,7 @@ import 'package:kiro_time/features/timetable/domain/section_time_settings.dart';
 void main() {
   setUpAll(() async {
     await Isar.initializeIsarCore(
-      libraries: <Abi, String>{
-        Abi.current(): 'third_party/isar_flutter_libs/linux/libisar.so',
-      },
+      libraries: <Abi, String>{Abi.current(): _isarCoreLibraryPath()},
     );
   });
 
@@ -682,4 +680,17 @@ void main() {
       },
     );
   });
+}
+
+String _isarCoreLibraryPath() {
+  if (Platform.isMacOS) {
+    return 'third_party/isar_flutter_libs/macos/libisar.dylib';
+  }
+  if (Platform.isLinux) {
+    return 'third_party/isar_flutter_libs/linux/libisar.so';
+  }
+  if (Platform.isWindows) {
+    return 'third_party/isar_flutter_libs/windows/isar.dll';
+  }
+  throw UnsupportedError('Isar tests are not configured for this platform');
 }

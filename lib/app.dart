@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'features/timetable/presentation/timetable_page.dart';
+import 'ui/kiro_theme.dart';
 
 class KiroTimeApp extends StatelessWidget {
   const KiroTimeApp({super.key});
@@ -10,10 +11,7 @@ class KiroTimeApp extends StatelessWidget {
     return MaterialApp(
       title: 'KiroTime',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF157A6E)),
-        useMaterial3: true,
-      ),
+      theme: buildKiroTheme(),
       home: const TimetablePage(),
     );
   }

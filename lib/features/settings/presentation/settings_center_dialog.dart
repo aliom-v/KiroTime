@@ -13,10 +13,12 @@ import '../../import_export/domain/timetable_json_codec.dart';
 import '../../timetable/application/timetable_providers.dart';
 import '../../timetable/domain/semester_settings.dart';
 import '../../timetable/domain/section_time_settings.dart';
+import '../../timetable/domain/section_time_presets.dart';
 import '../../timetable/presentation/timetable_page.dart';
 import '../application/settings_providers.dart';
 import '../domain/import_preferences.dart';
 import '../domain/timetable_appearance_settings.dart';
+import '../../../ui/glass.dart';
 
 class SettingsCenterDialog extends ConsumerStatefulWidget {
   const SettingsCenterDialog({super.key});
@@ -169,6 +171,16 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                         title: '上课时间',
                         onTap: _showSectionTimeSettings,
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '时间模板（一键套用常见作息）',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: KiroPalette.textSecondary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _SectionTimePresetRow(onApply: _applySectionTimePreset),
                       const SizedBox(height: 10),
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
@@ -285,6 +297,15 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                           );
                         },
                       ),
+                      if (_importPreferences
+                          .savedAcademicUrls
+                          .isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 8),
+                        _SavedUrlManager(
+                          urls: _importPreferences.savedAcademicUrls,
+                          onRemove: _removeSavedUrl,
+                        ),
+                      ],
                       _ActionTile(
                         icon: Icons.folder_open_outlined,
                         title: '从本地 JSON 导入',
@@ -663,6 +684,26 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
       _appearance = settings;
     });
     unawaited(ref.read(saveAppearanceSettingsProvider)(settings));
+  }
+
+  void _applySectionTimePreset(SectionTimePreset preset) {
+    final settings = preset.build(_editingSemester.sectionCount);
+    setState(() {
+      _editingSemester = _editingSemester.copyWith(
+        sectionTimeSettings: settings,
+      );
+    });
+    _showMessage('已套用「${preset.name}」，记得点击保存设置');
+  }
+
+  void _removeSavedUrl(String url) {
+    final next = <String>[
+      for (final item in _importPreferences.savedAcademicUrls)
+        if (item != url) item,
+    ];
+    final updated = _importPreferences.copyWith(savedAcademicUrls: next);
+    setState(() => _importPreferences = updated);
+    unawaited(ref.read(saveImportPreferencesProvider)(updated));
   }
 
   Future<void> _exportJson(TimetableExportScope scope) async {
@@ -1046,6 +1087,84 @@ class _SemesterSwitchCard extends StatelessWidget {
   }
 }
 
+class _SavedUrlManager extends StatelessWidget {
+  const _SavedUrlManager({required this.urls, required this.onRemove});
+
+  final List<String> urls;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          '常用教务网址',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: KiroPalette.textSecondary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        for (final url in urls)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.push_pin_outlined,
+                  size: 16,
+                  color: KiroPalette.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    url,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                IconButton(
+                  tooltip: '移除',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onRemove(url),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SectionTimePresetRow extends StatelessWidget {
+  const _SectionTimePresetRow({required this.onApply});
+
+  final ValueChanged<SectionTimePreset> onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: SectionTimePresets.catalog.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final preset = SectionTimePresets.catalog[index];
+          return GlassChipButton(
+            label: preset.name,
+            icon: Icons.schedule_rounded,
+            onPressed: () => onApply(preset),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _SettingsSection extends StatelessWidget {
   const _SettingsSection({
     required this.title,
@@ -1062,10 +1181,11 @@ class _SettingsSection extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Material(
-        color: const Color(0xFFF8FAFA),
+        color: Colors.white.withValues(alpha: 0.6),
+        elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: const BorderSide(color: Color(0xFFE4EAEC)),
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: KiroPalette.glassBorder),
         ),
         clipBehavior: Clip.antiAlias,
         child: Padding(
@@ -1075,7 +1195,7 @@ class _SettingsSection extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  Icon(icon, size: 20, color: const Color(0xFF266A60)),
+                  Icon(icon, size: 20, color: KiroPalette.primary),
                   const SizedBox(width: 8),
                   Text(
                     title,

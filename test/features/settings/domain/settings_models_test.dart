@@ -40,10 +40,29 @@ void main() {
     );
   });
 
+  test('import preferences preserve pinned academic URLs', () {
+    final preferences = ImportPreferences.defaults().copyWith(
+      academicSystemUrl: 'https://jw.example.edu.cn',
+      savedAcademicUrls: const <String>[
+        'https://jw.example.edu.cn',
+        'https://portal.example.edu.cn',
+      ],
+    );
+
+    final decoded = ImportPreferences.fromJson(preferences.toJson());
+
+    expect(decoded.academicSystemUrl, 'https://jw.example.edu.cn');
+    expect(decoded.savedAcademicUrls, <String>[
+      'https://jw.example.edu.cn',
+      'https://portal.example.edu.cn',
+    ]);
+  });
+
   test('import preferences default to private import behavior', () {
     final defaults = ImportPreferences.defaults();
 
     expect(defaults.academicSystemUrl, isEmpty);
+    expect(defaults.savedAcademicUrls, isEmpty);
     expect(defaults.semesterApiPath, isEmpty);
     expect(defaults.keepWebViewLoginState, isFalse);
     expect(defaults.keepHtmlDiagnostics, isFalse);

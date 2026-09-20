@@ -8,6 +8,7 @@ import '../../courses/domain/course_week_text.dart';
 import '../../import/presentation/course_import_page.dart';
 import '../../settings/application/settings_providers.dart';
 import '../../settings/domain/timetable_appearance_settings.dart';
+import '../../../ui/glass.dart';
 import '../../settings/presentation/settings_center_dialog.dart';
 import '../application/timetable_providers.dart';
 import '../domain/semester_settings.dart';
@@ -33,14 +34,13 @@ class TimetablePage extends ConsumerWidget {
     ref.watch(settingsBootstrapProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFEAF9F8),
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Stack(
           children: <Widget>[
-            const Positioned.fill(child: _TimetableBackdrop()),
+            const Positioned.fill(child: KiroCanvas()),
             Column(
               children: <Widget>[
-                const _TopBar(),
                 Expanded(
                   child: visibleItemsAsync.when(
                     data: (visibleItems) => _WeekTransition(
@@ -110,12 +110,13 @@ class _WeekContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final weekStart = semesterSettings.weekStart(currentWeek);
+    final today = DateTime.now();
     return Column(
       children: <Widget>[
         _TermHeader(
           currentWeek: currentWeek,
           semesterSettings: semesterSettings,
-          appearance: appearance,
         ),
         Expanded(
           child: GestureDetector(
@@ -133,6 +134,8 @@ class _WeekContent extends ConsumerWidget {
               configuredSectionCount: semesterSettings.sectionCount,
               sectionTimeSettings: semesterSettings.sectionTimeSettings,
               appearance: appearance,
+              weekStart: weekStart,
+              today: today,
             ),
           ),
         ),
@@ -167,180 +170,107 @@ void _setCurrentWeek({
   ref.read(currentWeekProvider.notifier).state = week;
 }
 
-class _TimetableBackdrop extends StatelessWidget {
-  const _TimetableBackdrop();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[Color(0xFFE9F3FF), Color(0xFFE4FFF5)],
-        ),
-      ),
-    );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  const _TopBar();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 16, 2),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: FittedBox(
-              alignment: Alignment.centerLeft,
-              fit: BoxFit.scaleDown,
-              child: Text(
-                '校园课程表',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-          IconButton.filledTonal(
-            tooltip: '新增课程',
-            onPressed: () => _showCourseEditor(context, placement: null),
-            icon: const Icon(Icons.add_rounded),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filledTonal(
-            tooltip: '课表设置',
-            onPressed: () => _showSemesterSettings(context),
-            icon: const Icon(Icons.settings_outlined),
-          ),
-          const SizedBox(width: 8),
-          IconButton.filledTonal(
-            tooltip: '导入课表',
-            onPressed: () => _openImportPage(context),
-            icon: const Icon(Icons.file_upload_outlined),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _TermHeader extends ConsumerWidget {
   const _TermHeader({
     required this.currentWeek,
     required this.semesterSettings,
-    required this.appearance,
   });
 
   final int currentWeek;
   final SemesterSettings semesterSettings;
-  final TimetableAppearanceSettings appearance;
-
-  static const List<String> _weekdayLabels = <String>[
-    '一',
-    '二',
-    '三',
-    '四',
-    '五',
-    '六',
-    '日',
-  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final weekStart = semesterSettings.weekStart(currentWeek);
-    final today = DateTime.now();
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-      padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(210),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withAlpha(230)),
-      ),
+    final theme = Theme.of(context);
+    return GlassPanel(
+      margin: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+      padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
       child: Column(
         children: <Widget>[
           Row(
             children: <Widget>[
               Expanded(
-                child: Text(
-                  semesterSettings.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF7D8790),
-                    fontWeight: FontWeight.w700,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _showSemesterSettings(context),
+                  child: Row(
+                    children: <Widget>[
+                      const Icon(
+                        Icons.calendar_month_rounded,
+                        size: 18,
+                        color: KiroPalette.textSecondary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          semesterSettings.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: KiroPalette.textPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.unfold_more_rounded,
+                        size: 16,
+                        color: KiroPalette.textTertiary,
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              _WeekStepper(
-                currentWeek: currentWeek,
-                totalWeeks: semesterSettings.totalWeeks,
-                onPrevious: currentWeek <= 1
-                    ? null
-                    : () => _setCurrentWeek(
-                        ref: ref,
-                        week: currentWeek - 1,
-                        direction: -1,
-                      ),
-                onNext: currentWeek >= semesterSettings.totalWeeks
-                    ? null
-                    : () => _setCurrentWeek(
-                        ref: ref,
-                        week: currentWeek + 1,
-                        direction: 1,
-                      ),
-                onWeekTap: () => _showWeekPicker(
-                  context,
-                  ref: ref,
-                  currentWeek: currentWeek,
-                  totalWeeks: semesterSettings.totalWeeks,
-                ),
+              const SizedBox(width: 6),
+              GlassIconButton(
+                icon: Icons.add_rounded,
+                tooltip: '新增课程',
+                size: 36,
+                filled: true,
+                onPressed: () => _showCourseEditor(context, placement: null),
+              ),
+              const SizedBox(width: 6),
+              GlassIconButton(
+                icon: Icons.file_upload_outlined,
+                tooltip: '导入课表',
+                size: 36,
+                onPressed: () => _openImportPage(context),
+              ),
+              const SizedBox(width: 6),
+              GlassIconButton(
+                icon: Icons.settings_outlined,
+                tooltip: '课表设置',
+                size: 36,
+                onPressed: () => _showSemesterSettings(context),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              SizedBox(
-                width: 30,
-                child: Text(
-                  '${weekStart.month}\n月',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    height: 1.2,
-                    letterSpacing: 0,
-                  ),
-                ),
+          Center(
+            child: _WeekStepper(
+              currentWeek: currentWeek,
+              totalWeeks: semesterSettings.totalWeeks,
+              onPrevious: currentWeek <= 1
+                  ? null
+                  : () => _setCurrentWeek(
+                      ref: ref,
+                      week: currentWeek - 1,
+                      direction: -1,
+                    ),
+              onNext: currentWeek >= semesterSettings.totalWeeks
+                  ? null
+                  : () => _setCurrentWeek(
+                      ref: ref,
+                      week: currentWeek + 1,
+                      direction: 1,
+                    ),
+              onWeekTap: () => _showWeekPicker(
+                context,
+                ref: ref,
+                currentWeek: currentWeek,
+                totalWeeks: semesterSettings.totalWeeks,
               ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Row(
-                  children: <Widget>[
-                    for (
-                      var index = 0;
-                      index < (appearance.showWeekend ? 7 : 5);
-                      index++
-                    )
-                      Expanded(
-                        child: _DateHeaderCell(
-                          dayOfWeek: index + 1,
-                          weekday: _weekdayLabels[index],
-                          date: weekStart.add(Duration(days: index)),
-                          today: today,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -367,8 +297,9 @@ class _WeekStepper extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xFFF1FFFB),
+        color: Colors.white.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: KiroPalette.glassBorder),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -416,6 +347,74 @@ class _WeekStepper extends StatelessWidget {
   }
 }
 
+class _WeekdayHeaderRow extends StatelessWidget {
+  const _WeekdayHeaderRow({
+    required this.dayCount,
+    required this.weekStart,
+    required this.today,
+  });
+
+  static const List<String> _labels = <String>[
+    '一',
+    '二',
+    '三',
+    '四',
+    '五',
+    '六',
+    '日',
+  ];
+
+  final int dayCount;
+  final DateTime weekStart;
+  final DateTime today;
+
+  @override
+  Widget build(BuildContext context) {
+    return MediaQuery(
+      // Header labels are fixed-size chrome: they must survive large text
+      // scaling without overflowing the 46pt board header band.
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: const TextScaler.linear(1)),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.72),
+          border: const Border(
+            bottom: BorderSide(color: KiroPalette.separator),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            SizedBox(
+              width: TimetablePage._timeColumnWidth,
+              child: Center(
+                child: Text(
+                  '${weekStart.month}月',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: KiroPalette.textSecondary,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ),
+            for (var index = 0; index < dayCount; index++)
+              Expanded(
+                child: _DateHeaderCell(
+                  dayOfWeek: index + 1,
+                  weekday: _labels[index],
+                  date: weekStart.add(Duration(days: index)),
+                  today: today,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DateHeaderCell extends StatelessWidget {
   const _DateHeaderCell({
     required this.dayOfWeek,
@@ -436,23 +435,27 @@ class _DateHeaderCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dayColor = _isToday ? Colors.black : const Color(0xFF8E969D);
+    final dayColor = _isToday
+        ? KiroPalette.textPrimary
+        : KiroPalette.textTertiary;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Text(
           weekday,
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w800,
+            height: 1.0,
             letterSpacing: 0,
           ),
         ),
         const SizedBox(height: 3),
         Container(
-          width: 28,
-          height: 28,
+          width: 26,
+          height: 26,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: _isToday ? const Color(0xFFB5F8E8) : Colors.transparent,
+            color: _isToday ? KiroPalette.todayAccent : Colors.transparent,
             shape: BoxShape.circle,
           ),
           child: Text(
@@ -532,9 +535,7 @@ class _WeekPickerDialogState extends State<_WeekPickerDialog> {
           itemExtent: 44,
           physics: const FixedExtentScrollPhysics(),
           onSelectedItemChanged: (index) {
-            setState(() {
-              _selectedWeek = index + 1;
-            });
+            setState(() => _selectedWeek = index + 1);
           },
           childDelegate: ListWheelChildBuilderDelegate(
             childCount: widget.totalWeeks,
@@ -548,7 +549,7 @@ class _WeekPickerDialogState extends State<_WeekPickerDialog> {
                       : ValueKey<String>('wheel-week-$week'),
                   decoration: BoxDecoration(
                     color: selected
-                        ? const Color(0xFFE6FFF6)
+                        ? KiroPalette.todayAccent.withValues(alpha: 0.55)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -565,8 +566,8 @@ class _WeekPickerDialogState extends State<_WeekPickerDialog> {
                             ? FontWeight.w900
                             : FontWeight.w600,
                         color: selected
-                            ? const Color(0xFF14332F)
-                            : const Color(0xFF87908D),
+                            ? KiroPalette.textPrimary
+                            : KiroPalette.textTertiary,
                       ),
                     ),
                   ),
@@ -607,8 +608,8 @@ class _CompactIconButton extends StatelessWidget {
       tooltip: tooltip,
       onPressed: onPressed,
       style: IconButton.styleFrom(
-        foregroundColor: const Color(0xFF2D3942),
-        disabledForegroundColor: const Color(0xFFBAC2CA),
+        foregroundColor: KiroPalette.textPrimary,
+        disabledForegroundColor: KiroPalette.textTertiary,
         minimumSize: const Size(32, 32),
         padding: EdgeInsets.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -624,15 +625,19 @@ class _TimetableBoard extends StatelessWidget {
     required this.configuredSectionCount,
     required this.sectionTimeSettings,
     required this.appearance,
+    required this.weekStart,
+    required this.today,
   });
 
-  static const double _topGap = 8;
   static const double _bottomGap = 12;
+  static const double _headerHeight = 46;
 
   final List<TimetableVisibleItem> visibleItems;
   final int configuredSectionCount;
   final SectionTimeSettings sectionTimeSettings;
   final TimetableAppearanceSettings appearance;
+  final DateTime weekStart;
+  final DateTime today;
 
   int get _renderSectionCount {
     final maxScheduleSection = visibleItems.fold<int>(
@@ -649,57 +654,72 @@ class _TimetableBoard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final renderSectionCount = _renderSectionCount;
-        final sectionHeight = _resolveSectionHeight(
-          availableHeight: constraints.maxHeight,
-          renderSectionCount: renderSectionCount,
-        );
-        final gridHeight = sectionHeight * renderSectionCount;
-        final boardWidth = constraints.maxWidth;
-        final dayCount = appearance.showWeekend ? 7 : 5;
-        final filteredItems = visibleItems
-            .where((item) => item.dayColumn < dayCount)
-            .toList(growable: false);
-        final dayColumnWidth =
-            (boardWidth - TimetablePage._timeColumnWidth) / dayCount;
+    final dayCount = appearance.showWeekend ? 7 : 5;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        SizedBox(
+          height: _headerHeight,
+          child: _WeekdayHeaderRow(
+            dayCount: dayCount,
+            weekStart: weekStart,
+            today: today,
+          ),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final renderSectionCount = _renderSectionCount;
+              final sectionHeight = _resolveSectionHeight(
+                availableHeight: constraints.maxHeight,
+                renderSectionCount: renderSectionCount,
+              );
+              final gridHeight = sectionHeight * renderSectionCount;
+              final boardWidth = constraints.maxWidth;
+              final filteredItems = visibleItems
+                  .where((item) => item.dayColumn < dayCount)
+                  .toList(growable: false);
+              final dayColumnWidth =
+                  (boardWidth - TimetablePage._timeColumnWidth) / dayCount;
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(0, 0, 0, _bottomGap),
-          child: Container(
-            margin: const EdgeInsets.only(top: _topGap),
-            width: boardWidth,
-            height: gridHeight,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Stack(
-              children: <Widget>[
-                _GridBackground(
-                  dayColumnWidth: dayColumnWidth,
-                  dayCount: dayCount,
-                  sectionCount: renderSectionCount,
-                  sectionHeight: sectionHeight,
-                  sectionTimeSettings: sectionTimeSettings.ensureSectionCount(
-                    renderSectionCount,
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(0, 0, 0, _bottomGap),
+                child: Container(
+                  width: boardWidth,
+                  height: gridHeight,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(18),
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    children: <Widget>[
+                      _GridBackground(
+                        dayColumnWidth: dayColumnWidth,
+                        dayCount: dayCount,
+                        sectionCount: renderSectionCount,
+                        sectionHeight: sectionHeight,
+                        sectionTimeSettings: sectionTimeSettings
+                            .ensureSectionCount(renderSectionCount),
+                      ),
+                      for (final item in filteredItems)
+                        _PositionedVisibleItem(
+                          item: item,
+                          dayColumnWidth: dayColumnWidth,
+                          sectionHeight: sectionHeight,
+                          appearance: appearance,
+                        ),
+                      if (filteredItems.isEmpty) const _EmptyWeekHint(),
+                    ],
                   ),
                 ),
-                for (final item in filteredItems)
-                  _PositionedVisibleItem(
-                    item: item,
-                    dayColumnWidth: dayColumnWidth,
-                    sectionHeight: sectionHeight,
-                    appearance: appearance,
-                  ),
-                if (filteredItems.isEmpty) const _EmptyWeekHint(),
-              ],
-            ),
+              );
+            },
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 
@@ -711,7 +731,7 @@ class _TimetableBoard extends StatelessWidget {
         renderSectionCount < SemesterSettings.defaultSectionCount
         ? renderSectionCount
         : SemesterSettings.defaultSectionCount;
-    final targetGridHeight = availableHeight - _topGap - _bottomGap;
+    final targetGridHeight = availableHeight - _bottomGap;
     if (targetGridHeight <= 0) {
       return TimetablePage._minSectionHeight;
     }
@@ -1055,7 +1075,10 @@ class _CourseCardSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: palette.background,
-      borderRadius: BorderRadius.circular(6),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: palette.accent.withValues(alpha: 0.28)),
+      ),
       clipBehavior: Clip.antiAlias,
       child: MediaQuery(
         data: MediaQuery.of(
