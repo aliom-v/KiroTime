@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/isar_database.dart';
 import '../../settings/application/settings_providers.dart';
 import '../../timetable/application/timetable_providers.dart';
+import '../../timetable/domain/section_time_settings.dart';
 import '../domain/academic_timetable_html_parser.dart';
 import 'import_persistence_sequence.dart';
 
@@ -41,6 +42,7 @@ typedef PersistImportedTimetable =
     Future<ImportPersistenceResult> Function({
       required ImportedTimetable timetable,
       String? detectedApiPath,
+      SectionTimeSettings? acceptedSectionTimes,
     });
 
 final persistImportedTimetableProvider = Provider<PersistImportedTimetable>((
@@ -51,11 +53,15 @@ final persistImportedTimetableProvider = Provider<PersistImportedTimetable>((
     applyImportedSemesterMetadataToSemesterProvider,
   );
   final saveImportPreferences = ref.read(saveImportPreferencesProvider);
+  final applySectionTimes = ref.read(
+    applyImportedSectionTimesToSemesterProvider,
+  );
   final refreshTimetable = ref.read(refreshImportedTimetableProvider);
 
   return ({
     required ImportedTimetable timetable,
     String? detectedApiPath,
+    SectionTimeSettings? acceptedSectionTimes,
   }) async {
     final semesterId = ref.read(selectedSemesterIdProvider);
     final result = await ImportPersistenceSequence.run(
@@ -65,6 +71,12 @@ final persistImportedTimetableProvider = Provider<PersistImportedTimetable>((
         semesterId: semesterId,
         semesterStart: timetable.semesterStart,
       ),
+      persistSectionTimes: acceptedSectionTimes == null
+          ? null
+          : () => applySectionTimes(
+              semesterId: semesterId,
+              sectionTimeSettings: acceptedSectionTimes,
+            ),
       persistDetectedApiPath: detectedApiPath == null
           ? null
           : () async {

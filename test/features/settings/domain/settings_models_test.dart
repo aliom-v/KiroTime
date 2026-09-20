@@ -58,6 +58,35 @@ void main() {
     ]);
   });
 
+  test(
+    'import preferences migrate legacy urls and preserve bookmark names',
+    () {
+      final decoded = ImportPreferences.fromJson(<String, dynamic>{
+        'savedAcademicUrls': <Object>[
+          'https://jw.example.edu.cn/path#fragment',
+          <String, dynamic>{
+            'name': '研究生教务',
+            'url': 'https://graduate.example.edu.cn/',
+          },
+          'ftp://invalid.example.edu.cn',
+          'https://jw.example.edu.cn/path',
+        ],
+      });
+
+      expect(decoded.savedAcademicUrls, <String>[
+        'https://jw.example.edu.cn/path',
+        'https://graduate.example.edu.cn/',
+      ]);
+      expect(
+        decoded.savedAcademicUrlBookmarks.map((item) => item.displayName),
+        <String>['jw.example.edu.cn', '研究生教务'],
+      );
+
+      final roundTrip = ImportPreferences.fromJson(decoded.toJson());
+      expect(roundTrip.savedAcademicUrlBookmarks[1].name, '研究生教务');
+    },
+  );
+
   test('import preferences default to private import behavior', () {
     final defaults = ImportPreferences.defaults();
 

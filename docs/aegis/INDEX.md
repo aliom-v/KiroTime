@@ -26,3 +26,4 @@
 - 2026-07-18: `work/2026-07-18-import-parser-residual-hardening/20-checkpoint.md` - Completed task slices, drift decisions, and integration handoff.
 - 2026-07-18: `work/2026-07-18-import-parser-residual-hardening/90-evidence.md` - RED/GREEN results, import regression evidence, full-suite isolation, and manual verification boundary.
 - 2026-07-18: `work/2026-07-18-import-parser-residual-hardening/99-reflection.md` - Architecture review, repair/retirement closure, review findings, and residual risk.
+- 2026-09-20: `plans/2026-09-20-import-settings-glass-completion.md` - Imported section-time review, structured URL bookmarks, full-screen settings, and glass UI completion plan.

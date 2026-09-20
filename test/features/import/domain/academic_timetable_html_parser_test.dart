@@ -105,6 +105,88 @@ void main() {
     });
   });
 
+  group('AcademicTimetableHtmlParser.sectionTimeEvidence', () {
+    test('detects explicit section clock ranges from the timetable axis', () {
+      const html = '''
+      <table>
+        <tr><th></th><th>周一</th><th>周二</th><th>周三</th></tr>
+        <tr><td>1 08:10-08:55</td><td></td><td></td><td></td></tr>
+        <tr><td>2 09:05-09:50</td><td></td><td></td><td></td></tr>
+        <tr><td>3 10:15-11:00</td><td></td><td></td><td></td></tr>
+      </table>
+      ''';
+
+      final evidence = AcademicTimetableHtmlParser.parse(
+        html,
+      ).sectionTimeEvidence;
+
+      expect(evidence, isNotNull);
+      expect(evidence!.hasExplicitEndTimes, isTrue);
+      expect(evidence.usesDurationFallback, isFalse);
+      expect(evidence.settings.sections.map((item) => item.section), <int>[
+        1,
+        2,
+        3,
+      ]);
+      expect(evidence.settings.section(1).timeRangeText, '08:10-08:55');
+      expect(evidence.settings.section(3).timeRangeText, '10:15-11:00');
+    });
+
+    test(
+      'detects start-only section axis with conservative duration fallback',
+      () {
+        const html = '''
+      <table>
+        <tr><th></th><th>周一</th><th>周二</th><th>周三</th></tr>
+        <tr><td>1<br>08:10:00</td><td></td><td></td><td></td></tr>
+        <tr><td>2<br>09:05:00</td><td></td><td></td><td></td></tr>
+        <tr><td>3<br>10:15:00</td><td></td><td></td><td></td></tr>
+      </table>
+      ''';
+
+        final evidence = AcademicTimetableHtmlParser.parse(
+          html,
+        ).sectionTimeEvidence;
+
+        expect(evidence, isNotNull);
+        expect(evidence!.hasExplicitEndTimes, isFalse);
+        expect(evidence.usesDurationFallback, isTrue);
+        expect(evidence.settings.section(1).timeRangeText, '08:10-08:55');
+        expect(evidence.settings.section(2).timeRangeText, '09:05-09:50');
+      },
+    );
+
+    test('rejects sparse section-time evidence', () {
+      const html = '''
+      <table>
+        <tr><th></th><th>周一</th><th>周二</th><th>周三</th></tr>
+        <tr><td>1 08:10-08:55</td><td></td><td></td><td></td></tr>
+        <tr><td>3 10:15-11:00</td><td></td><td></td><td></td></tr>
+      </table>
+      ''';
+
+      expect(
+        AcademicTimetableHtmlParser.parse(html).sectionTimeEvidence,
+        isNull,
+      );
+    });
+
+    test('rejects overlapping section clock ranges', () {
+      const html = '''
+      <table>
+        <tr><th></th><th>周一</th><th>周二</th><th>周三</th></tr>
+        <tr><td>1 08:10-09:10</td><td></td><td></td><td></td></tr>
+        <tr><td>2 09:05-09:50</td><td></td><td></td><td></td></tr>
+      </table>
+      ''';
+
+      expect(
+        AcademicTimetableHtmlParser.parse(html).sectionTimeEvidence,
+        isNull,
+      );
+    });
+  });
+
   group('AcademicTimetableHtmlParser.parse', () {
     test('extracts first week start date from school week picker text', () {
       const html = '''

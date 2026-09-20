@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kiro_time/features/import_export/application/import_export_providers.dart';
 import 'package:kiro_time/features/import_export/data/android_timetable_file_gateway.dart';
 import 'package:kiro_time/features/import_export/domain/timetable_json_codec.dart';
+import 'package:kiro_time/features/settings/application/settings_providers.dart';
+import 'package:kiro_time/features/settings/domain/import_preferences.dart';
 import 'package:kiro_time/features/timetable/application/timetable_providers.dart';
 import 'package:kiro_time/features/courses/data/course_meta.dart';
 import 'package:kiro_time/features/courses/data/course_schedule.dart';
@@ -440,8 +442,8 @@ void main() {
 
     expect(find.text('设置'), findsOneWidget);
     expect(find.text('课表设置'), findsWidgets);
-    expect(find.text('外观'), findsOneWidget);
-    expect(find.text('导入导出'), findsOneWidget);
+    expect(find.text('外观'), findsWidgets);
+    expect(find.text('导入导出'), findsWidgets);
     expect(find.text('高级设置'), findsOneWidget);
     expect(find.text('上课时间'), findsOneWidget);
     expect(find.text('从本地 JSON 导入'), findsOneWidget);
@@ -501,6 +503,60 @@ void main() {
     expect(find.text('4'), findsWidgets);
     expect(find.text('包名'), findsOneWidget);
     expect(find.text('com.kirotime.app'), findsOneWidget);
+  });
+
+  testWidgets('settings adds a named academic URL bookmark', (tester) async {
+    ImportPreferences? savedPreferences;
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: <Override>[
+          timetablePlacementsProvider.overrideWith(
+            (ref) async => <TimetableCoursePlacement>[],
+          ),
+          importPreferencesProvider.overrideWith(
+            (ref) => ImportPreferences.defaults(),
+          ),
+          saveImportPreferencesProvider.overrideWithValue((preferences) async {
+            savedPreferences = preferences;
+          }),
+        ],
+        child: MaterialApp(
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF157A6E),
+            ),
+            useMaterial3: true,
+          ),
+          home: const TimetablePage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('课表设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入导出').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('添加网址'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.bySemanticsLabel('名称'), '本科生教务');
+    await tester.enterText(
+      find.bySemanticsLabel('网址'),
+      'https://jw.example.edu.cn/path#login',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+
+    expect(savedPreferences, isNotNull);
+    expect(savedPreferences!.savedAcademicUrlBookmarks.single.name, '本科生教务');
+    expect(
+      savedPreferences!.savedAcademicUrlBookmarks.single.url,
+      'https://jw.example.edu.cn/path',
+    );
+    expect(find.text('本科生教务'), findsOneWidget);
   });
 
   testWidgets('about dialog opens privacy notice', (tester) async {
@@ -944,6 +1000,8 @@ void main() {
     await tester.ensureVisible(find.text('保存设置'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('保存设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
 
     final expectedWeek = initialSemester

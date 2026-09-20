@@ -4,6 +4,7 @@ class ImportPersistenceSequence {
   static Future<ImportPersistenceResult> run({
     required Future<void> Function() replaceTimetable,
     Future<void> Function()? persistSemesterMetadata,
+    Future<void> Function()? persistSectionTimes,
     Future<void> Function()? persistDetectedApiPath,
   }) async {
     await replaceTimetable();
@@ -12,6 +13,11 @@ class ImportPersistenceSequence {
     await _runOptional(
       label: '保存学期信息',
       action: persistSemesterMetadata,
+      warnings: warnings,
+    );
+    await _runOptional(
+      label: '保存上课时间',
+      action: persistSectionTimes,
       warnings: warnings,
     );
     await _runOptional(

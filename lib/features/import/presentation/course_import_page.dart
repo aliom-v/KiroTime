@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../settings/application/settings_providers.dart';
+import '../../settings/domain/import_preferences.dart';
 import '../../../ui/glass.dart';
 import '../../timetable/application/timetable_providers.dart';
 import '../application/import_persistence_provider.dart';
@@ -116,11 +117,8 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
   Widget _buildUrlPresetChips() {
     final prefs = ref.watch(importPreferencesProvider);
     final entries = <String, String>{};
-    for (final item in prefs.savedAcademicUrls) {
-      final trimmed = item.trim();
-      if (trimmed.isNotEmpty) {
-        entries.putIfAbsent(trimmed, () => _shortHost(trimmed));
-      }
+    for (final bookmark in prefs.savedAcademicUrlBookmarks) {
+      entries.putIfAbsent(bookmark.url, () => bookmark.displayName);
     }
     final list = entries.entries.toList(growable: false);
     if (list.isEmpty) {
@@ -169,14 +167,25 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
       return;
     }
     final prefs = ref.read(importPreferencesProvider);
-    if (prefs.savedAcademicUrls.contains(url)) {
+    final normalizedBookmark = ImportPreferences.defaults()
+        .copyWith(
+          savedAcademicUrlBookmarks: <SavedAcademicUrl>[
+            SavedAcademicUrl(name: _shortHost(url), url: url),
+          ],
+        )
+        .savedAcademicUrlBookmarks
+        .single;
+    if (prefs.savedAcademicUrls.contains(normalizedBookmark.url)) {
       _showMessage('该网址已在常用列表');
       return;
     }
     await ref.read(saveImportPreferencesProvider)(
       prefs.copyWith(
-        savedAcademicUrls: <String>[...prefs.savedAcademicUrls, url],
-        academicSystemUrl: url,
+        savedAcademicUrlBookmarks: <SavedAcademicUrl>[
+          ...prefs.savedAcademicUrlBookmarks,
+          normalizedBookmark,
+        ],
+        academicSystemUrl: normalizedBookmark.url,
       ),
     );
     _showMessage('已固定到常用网址');
@@ -212,12 +221,12 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
         return;
       }
 
-      final confirmed = await _showImportPreview(prepared);
-      if (confirmed != true) {
+      final decision = await _showImportPreview(prepared);
+      if (decision == null) {
         return;
       }
 
-      await _persistPreparedImport(prepared);
+      await _persistPreparedImport(prepared, decision: decision);
     } catch (error) {
       _showMessage('导入失败：$error');
     } finally {
@@ -256,9 +265,9 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
         return;
       }
 
-      final confirmed = await _showImportPreview(result);
-      if (confirmed == true) {
-        await _persistPreparedImport(result);
+      final decision = await _showImportPreview(result);
+      if (decision != null) {
+        await _persistPreparedImport(result, decision: decision);
       }
     } catch (error) {
       _showMessage('探测失败：$error');
@@ -408,12 +417,18 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     }
   }
 
-  Future<void> _persistPreparedImport(_PreparedImport prepared) async {
+  Future<void> _persistPreparedImport(
+    _PreparedImport prepared, {
+    required ImportPreviewResult decision,
+  }) async {
     final importedTimetable = prepared.timetable;
     final persistImportedTimetable = ref.read(persistImportedTimetableProvider);
     final result = await persistImportedTimetable(
       timetable: importedTimetable,
       detectedApiPath: prepared.path,
+      acceptedSectionTimes: decision.applySectionTimes
+          ? importedTimetable.sectionTimeEvidence?.settings
+          : null,
     );
 
     if (!mounted) {
@@ -432,14 +447,15 @@ class _CourseImportPageState extends ConsumerState<CourseImportPage> {
     );
   }
 
-  Future<bool?> _showImportPreview(_PreparedImport prepared) {
+  Future<ImportPreviewResult?> _showImportPreview(_PreparedImport prepared) {
     _lastPreviewSummary = prepared.summary;
-    return showDialog<bool>(
+    return showDialog<ImportPreviewResult>(
       context: context,
       builder: (context) => ImportPreviewDialog(
         source: prepared.source,
         path: prepared.path,
         summary: prepared.summary,
+        sectionTimeEvidence: prepared.timetable.sectionTimeEvidence,
       ),
     );
   }

@@ -21,7 +21,9 @@ import '../domain/timetable_appearance_settings.dart';
 import '../../../ui/glass.dart';
 
 class SettingsCenterDialog extends ConsumerStatefulWidget {
-  const SettingsCenterDialog({super.key});
+  const SettingsCenterDialog({super.key, this.fullScreen = false});
+
+  final bool fullScreen;
 
   @override
   ConsumerState<SettingsCenterDialog> createState() =>
@@ -36,6 +38,10 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
   late SemesterSettings _editingSemester;
   late TimetableAppearanceSettings _appearance;
   late ImportPreferences _importPreferences;
+  final List<GlobalKey> _sectionKeys = List<GlobalKey>.generate(
+    4,
+    (_) => GlobalKey(),
+  );
   bool _creatingSemester = false;
   bool _busy = false;
 
@@ -81,38 +87,46 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
         mediaQuery.viewPadding.bottom;
 
     return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: safeHeight * 0.88),
+      constraints: BoxConstraints(
+        maxHeight: widget.fullScreen ? safeHeight : safeHeight * 0.88,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    '设置',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
+          if (!widget.fullScreen)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 10),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      '设置',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
-                ),
-                IconButton(
-                  tooltip: '关闭',
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
+                  IconButton(
+                    tooltip: '关闭',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
             ),
-          ),
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  if (widget.fullScreen) ...<Widget>[
+                    _SettingsSectionNavigation(onSelected: _jumpToSection),
+                    const SizedBox(height: 12),
+                  ],
                   _SettingsSection(
+                    key: _sectionKeys[0],
                     title: '课表设置',
                     icon: Icons.calendar_month_outlined,
                     children: <Widget>[
@@ -195,6 +209,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                     ],
                   ),
                   _SettingsSection(
+                    key: _sectionKeys[1],
                     title: '外观',
                     icon: Icons.palette_outlined,
                     children: <Widget>[
@@ -282,6 +297,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                     ],
                   ),
                   _SettingsSection(
+                    key: _sectionKeys[2],
                     title: '导入导出',
                     icon: Icons.import_export_outlined,
                     children: <Widget>[
@@ -289,23 +305,26 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                         icon: Icons.web_asset_outlined,
                         title: '从教务系统导入',
                         onTap: () {
-                          Navigator.of(context).pop();
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const CourseImportPage(),
-                            ),
+                          final route = MaterialPageRoute<void>(
+                            builder: (_) => const CourseImportPage(),
                           );
+                          final navigator = Navigator.of(context);
+                          if (widget.fullScreen) {
+                            navigator.pushReplacement(route);
+                          } else {
+                            navigator.pop();
+                            navigator.push(route);
+                          }
                         },
                       ),
-                      if (_importPreferences
-                          .savedAcademicUrls
-                          .isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 8),
-                        _SavedUrlManager(
-                          urls: _importPreferences.savedAcademicUrls,
-                          onRemove: _removeSavedUrl,
-                        ),
-                      ],
+                      const SizedBox(height: 8),
+                      _SavedUrlManager(
+                        bookmarks: _importPreferences.savedAcademicUrlBookmarks,
+                        onAdd: () => _editSavedUrl(),
+                        onEdit: _editSavedUrl,
+                        onRemove: _removeSavedUrl,
+                        onMove: _moveSavedUrl,
+                      ),
                       _ActionTile(
                         icon: Icons.folder_open_outlined,
                         title: '从本地 JSON 导入',
@@ -349,6 +368,7 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
                     ],
                   ),
                   _SettingsSection(
+                    key: _sectionKeys[3],
                     title: '高级设置',
                     icon: Icons.tune_outlined,
                     children: <Widget>[
@@ -479,6 +499,19 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     );
   }
 
+  void _jumpToSection(int index) {
+    final targetContext = _sectionKeys[index].currentContext;
+    if (targetContext == null) {
+      return;
+    }
+    Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+      alignment: 0.02,
+    );
+  }
+
   void _selectSemester(SemesterSettings settings) {
     setState(() {
       _creatingSemester = false;
@@ -522,7 +555,9 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
       }
       if (mounted) {
         _showMessage('已保存学期设置');
-        Navigator.of(context).pop();
+        if (!widget.fullScreen) {
+          Navigator.of(context).pop();
+        }
       }
     } catch (error) {
       if (mounted) {
@@ -696,12 +731,83 @@ class _SettingsCenterDialogState extends ConsumerState<SettingsCenterDialog> {
     _showMessage('已套用「${preset.name}」，记得点击保存设置');
   }
 
-  void _removeSavedUrl(String url) {
-    final next = <String>[
-      for (final item in _importPreferences.savedAcademicUrls)
-        if (item != url) item,
+  void _removeSavedUrl(SavedAcademicUrl bookmark) {
+    final next = <SavedAcademicUrl>[
+      for (final item in _importPreferences.savedAcademicUrlBookmarks)
+        if (item.url != bookmark.url) item,
     ];
-    final updated = _importPreferences.copyWith(savedAcademicUrls: next);
+    _saveSavedUrls(
+      next,
+      academicSystemUrl: _importPreferences.academicSystemUrl == bookmark.url
+          ? (next.isEmpty ? '' : next.first.url)
+          : null,
+    );
+  }
+
+  void _moveSavedUrl(SavedAcademicUrl bookmark, int offset) {
+    final next = <SavedAcademicUrl>[
+      ..._importPreferences.savedAcademicUrlBookmarks,
+    ];
+    final oldIndex = next.indexWhere((item) => item.url == bookmark.url);
+    final newIndex = oldIndex + offset;
+    if (oldIndex < 0 || newIndex < 0 || newIndex >= next.length) {
+      return;
+    }
+    next.insert(newIndex, next.removeAt(oldIndex));
+    _saveSavedUrls(next);
+  }
+
+  Future<void> _editSavedUrl([SavedAcademicUrl? current]) async {
+    final updatedBookmark = await showKiroDialog<SavedAcademicUrl>(
+      context: context,
+      child: _SavedUrlEditDialog(initialValue: current),
+    );
+    if (updatedBookmark == null) {
+      return;
+    }
+    final normalizedBookmark = ImportPreferences.defaults()
+        .copyWith(
+          savedAcademicUrlBookmarks: <SavedAcademicUrl>[updatedBookmark],
+        )
+        .savedAcademicUrlBookmarks
+        .single;
+    final next = <SavedAcademicUrl>[
+      ..._importPreferences.savedAcademicUrlBookmarks,
+    ];
+    final duplicateIndex = next.indexWhere(
+      (item) => item.url == normalizedBookmark.url && item.url != current?.url,
+    );
+    if (duplicateIndex >= 0) {
+      _showMessage('该网址已在常用列表');
+      return;
+    }
+    if (current == null) {
+      next.add(normalizedBookmark);
+    } else {
+      final index = next.indexWhere((item) => item.url == current.url);
+      if (index >= 0) {
+        next[index] = normalizedBookmark;
+      }
+    }
+    _saveSavedUrls(
+      next,
+      academicSystemUrl:
+          current != null && _importPreferences.academicSystemUrl == current.url
+          ? normalizedBookmark.url
+          : (_importPreferences.academicSystemUrl.isEmpty
+                ? normalizedBookmark.url
+                : null),
+    );
+  }
+
+  void _saveSavedUrls(
+    List<SavedAcademicUrl> bookmarks, {
+    String? academicSystemUrl,
+  }) {
+    final updated = _importPreferences.copyWith(
+      savedAcademicUrlBookmarks: bookmarks,
+      academicSystemUrl: academicSystemUrl,
+    );
     setState(() => _importPreferences = updated);
     unawaited(ref.read(saveImportPreferencesProvider)(updated));
   }
@@ -1088,25 +1194,52 @@ class _SemesterSwitchCard extends StatelessWidget {
 }
 
 class _SavedUrlManager extends StatelessWidget {
-  const _SavedUrlManager({required this.urls, required this.onRemove});
+  const _SavedUrlManager({
+    required this.bookmarks,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onRemove,
+    required this.onMove,
+  });
 
-  final List<String> urls;
-  final ValueChanged<String> onRemove;
+  final List<SavedAcademicUrl> bookmarks;
+  final VoidCallback onAdd;
+  final ValueChanged<SavedAcademicUrl> onEdit;
+  final ValueChanged<SavedAcademicUrl> onRemove;
+  final void Function(SavedAcademicUrl bookmark, int offset) onMove;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(
-          '常用教务网址',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: KiroPalette.textSecondary,
-            fontWeight: FontWeight.w800,
-          ),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                '常用教务网址',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: KiroPalette.textSecondary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: '添加网址',
+              onPressed: onAdd,
+              icon: const Icon(Icons.add_link_rounded),
+            ),
+          ],
         ),
+        if (bookmarks.isEmpty)
+          Text(
+            '还没有固定的网址',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: KiroPalette.textTertiary),
+          ),
         const SizedBox(height: 4),
-        for (final url in urls)
+        for (var index = 0; index < bookmarks.length; index++)
           Padding(
             padding: const EdgeInsets.only(bottom: 2),
             child: Row(
@@ -1118,17 +1251,52 @@ class _SavedUrlManager extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    url,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        bookmarks[index].displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        bookmarks[index].url,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ),
+                ),
+                IconButton(
+                  tooltip: '上移',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: index == 0
+                      ? null
+                      : () => onMove(bookmarks[index], -1),
+                  icon: const Icon(Icons.arrow_upward_rounded, size: 18),
+                ),
+                IconButton(
+                  tooltip: '下移',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: index == bookmarks.length - 1
+                      ? null
+                      : () => onMove(bookmarks[index], 1),
+                  icon: const Icon(Icons.arrow_downward_rounded, size: 18),
+                ),
+                IconButton(
+                  tooltip: '编辑',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onEdit(bookmarks[index]),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
                 ),
                 IconButton(
                   tooltip: '移除',
                   visualDensity: VisualDensity.compact,
-                  onPressed: () => onRemove(url),
+                  onPressed: () => onRemove(bookmarks[index]),
                   icon: const Icon(Icons.close_rounded, size: 18),
                 ),
               ],
@@ -1136,6 +1304,82 @@ class _SavedUrlManager extends StatelessWidget {
           ),
       ],
     );
+  }
+}
+
+class _SavedUrlEditDialog extends StatefulWidget {
+  const _SavedUrlEditDialog({this.initialValue});
+
+  final SavedAcademicUrl? initialValue;
+
+  @override
+  State<_SavedUrlEditDialog> createState() => _SavedUrlEditDialogState();
+}
+
+class _SavedUrlEditDialogState extends State<_SavedUrlEditDialog> {
+  late final TextEditingController _nameController = TextEditingController(
+    text: widget.initialValue?.name ?? '',
+  );
+  late final TextEditingController _urlController = TextEditingController(
+    text: widget.initialValue?.url ?? '',
+  );
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SimpleDialogFrame(
+      title: widget.initialValue == null ? '添加常用网址' : '编辑常用网址',
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('保存')),
+      ],
+      children: <Widget>[
+        TextField(
+          controller: _nameController,
+          decoration: const InputDecoration(
+            labelText: '名称',
+            hintText: '例如 本科生教务',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _urlController,
+          keyboardType: TextInputType.url,
+          decoration: InputDecoration(
+            labelText: '网址',
+            hintText: 'https://jw.example.edu.cn',
+            border: const OutlineInputBorder(),
+            errorText: _errorText,
+          ),
+          onSubmitted: (_) => _submit(),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final url = _urlController.text.trim();
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        uri.host.isEmpty ||
+        (uri.scheme != 'http' && uri.scheme != 'https')) {
+      setState(() => _errorText = '请输入有效的 HTTP(S) 网址');
+      return;
+    }
+    Navigator.of(
+      context,
+    ).pop(SavedAcademicUrl(name: _nameController.text.trim(), url: url));
   }
 }
 
@@ -1165,8 +1409,40 @@ class _SectionTimePresetRow extends StatelessWidget {
   }
 }
 
+class _SettingsSectionNavigation extends StatelessWidget {
+  const _SettingsSectionNavigation({required this.onSelected});
+
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    const items = <(String, IconData)>[
+      ('课表', Icons.calendar_month_outlined),
+      ('外观', Icons.palette_outlined),
+      ('导入导出', Icons.import_export_outlined),
+      ('高级', Icons.tune_outlined),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: <Widget>[
+          for (var index = 0; index < items.length; index++) ...<Widget>[
+            if (index > 0) const SizedBox(width: 8),
+            GlassChipButton(
+              label: items[index].$1,
+              icon: items[index].$2,
+              onPressed: () => onSelected(index),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _SettingsSection extends StatelessWidget {
   const _SettingsSection({
+    super.key,
     required this.title,
     required this.icon,
     required this.children,

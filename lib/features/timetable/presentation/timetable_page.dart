@@ -9,7 +9,7 @@ import '../../import/presentation/course_import_page.dart';
 import '../../settings/application/settings_providers.dart';
 import '../../settings/domain/timetable_appearance_settings.dart';
 import '../../../ui/glass.dart';
-import '../../settings/presentation/settings_center_dialog.dart';
+import '../../settings/presentation/settings_page.dart';
 import '../application/timetable_providers.dart';
 import '../domain/semester_settings.dart';
 import '../domain/section_time_settings.dart';
@@ -479,7 +479,9 @@ String _formatDate(DateTime date) {
 }
 
 void _showSemesterSettings(BuildContext context) {
-  showKiroDialog<void>(context: context, child: const SettingsCenterDialog());
+  Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
 }
 
 Future<void> _showWeekPicker(
